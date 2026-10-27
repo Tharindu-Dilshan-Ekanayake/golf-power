@@ -4,10 +4,7 @@ import { Group, Matrix4, Quaternion, Vector3 } from 'three'
 
 import { remotePlayers } from '../net/remotePlayers'
 import { getGame } from '../store/game'
-import { createToyInstances } from './blocks'
-import { frisbeeColor } from './frisbee'
-import { CLUB_SOLE, createClubParts } from './golfClub'
-import { sharedMaterials } from './materials'
+import { CLUB_SOLE, createClubSet, disposeClubMesh } from './golfClub'
 import { CLUB_GRIP, CLUB_TILT, WRIST_AXIS } from './playerPose'
 import { runtime } from './runtime'
 
@@ -33,8 +30,8 @@ const smooth01 = (x) => {
 }
 
 /**
- * A golfer's club in their right hand, its head tinted in the club's own colour: yours,
- * or (with `sessionId`) another player's. It lives inside the hand anchor the avatar
+ * A golfer's club in their right hand, in its own shape and materials (see golfClub.js):
+ * yours, or (with `sessionId`) another player's. It lives inside the hand anchor the avatar
  * moves onto the palm each frame, so it swings with the arms; here it only sets how it
  * is gripped, from the avatar's own motion (`motionRef`: address, swing timers, the
  * wrists' hinge and any duel emote, as computePose left them).
@@ -43,20 +40,19 @@ const smooth01 = (x) => {
  */
 export function HeldClub({ motionRef, sessionId = null }) {
   const mesh = useMemo(() => {
-    const parts = createClubParts()
+    // Every shape ready, only the one in hand shown (no draw calls for the others).
+    const set = createClubSet(1)
     const group = new Group()
     // The grip offset is baked in; how the club hangs from the hand is the group's own
     // rotation, set every frame below.
-    for (const geometry of [parts.body, parts.head]) {
-      const m = createToyInstances(geometry, sharedMaterials().toy, 1)
+    for (const m of set.list) {
       m.setMatrixAt(0, _clubM.compose(CLUB_GRIP, _clubIdentity, _clubOne))
       m.instanceMatrix.needsUpdate = true
       m.count = 1
-      m.frustumCulled = false
       group.add(m)
     }
     group.quaternion.copy(CLUB_TILT)
-    group.userData.head = group.children[1]
+    group.userData.set = set
     return group
   }, [])
   const ref = useRef(null)
@@ -64,10 +60,7 @@ export function HeldClub({ motionRef, sessionId = null }) {
 
   useEffect(
     () => () => {
-      for (const m of mesh.children) {
-        m.geometry.dispose()
-        m.dispose()
-      }
+      for (const m of mesh.children) disposeClubMesh(m)
     },
     [mesh],
   )
@@ -82,9 +75,11 @@ export function HeldClub({ motionRef, sessionId = null }) {
     const id = remote ? remote.planeId : getGame().profile.equippedPlane
     if (shown.current !== id) {
       shown.current = id
-      const head = club.userData.head
-      head.setColorAt(0, frisbeeColor(id))
-      head.instanceColor.needsUpdate = true
+      const set = club.userData.set
+      for (const m of set.list) m.visible = false
+      const m = set.meshFor(id)
+      m.visible = true
+      m.setClub(0, id)
     }
 
     // Three ways to hold it, all worked out in the world and turned into the hand's frame
