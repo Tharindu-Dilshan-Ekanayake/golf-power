@@ -23,11 +23,11 @@ import { eggHeight } from './eggs'
  * spot], shared with the 2D icons) unless overridden here.
  */
 const EGG_LOOKS = {
-  basic: { pattern: 0, glow: '#9fe8ff', spot: '#6cc8ff', dark: '#2f8fe6' },
-  meadow: { pattern: 1, glow: '#7cf08a' },
-  sunset: { pattern: 2, glow: '#ffb347' },
-  unicorn: { pattern: 3, glow: '#ffb0f0' },
-  demon: { pattern: 4, glow: '#ff3b1e' },
+  basic: { pattern: 0, glow: '#ff9a2a', spot: '#ffd21f', dark: '#6a2a0a' },
+  meadow: { pattern: 1, glow: '#7dff3a' },
+  sunset: { pattern: 2, glow: '#b07cff' },
+  unicorn: { pattern: 3, glow: '#c9d4ff' },
+  demon: { pattern: 4, glow: '#b15cff' },
 }
 
 const vertexHead = /* glsl */ `

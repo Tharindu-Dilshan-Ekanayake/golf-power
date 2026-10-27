@@ -3,8 +3,10 @@ import { runtime } from '../game/runtime'
 import { getGame } from '../store/game'
 import { setTransport } from './actions'
 import { handleServerEvent } from './events'
+import { endDuel } from '../game/duel'
+import { FULL_RELEASE_DELAY } from '../game/playerPose'
 import { createLocalServer } from './localServer'
-import { clearRemotePlayers, removeRemotePlayer, upsertRemotePlayer } from './remotePlayers'
+import { clearRemotePlayers, removeRemotePlayer, startRemoteSwing, upsertRemotePlayer } from './remotePlayers'
 
 /** Position reports per second (the server validates each against the last). */
 const POSITION_HZ = 10
@@ -83,7 +85,7 @@ function startLocal(identity, message) {
   const local = createLocalServer({ ...identity, onEvent: handleServerEvent })
   active = { kind: 'local', close: () => local.close() }
   setTransport(local)
-  getGame().setNet({ mode: 'offline', players: 1, lobbyId: null, code: null, isPrivate: false, message })
+  getGame().setNet({ mode: 'offline', players: 1, lobbyId: null, code: null, isPrivate: false, message, sessionId: null })
 }
 
 function join(client, options, lobby) {
@@ -117,6 +119,7 @@ function attachRoom(room, identity, Callbacks) {
       isPrivate,
       players,
       message: null,
+      sessionId: room.sessionId,
     })
   }
 
@@ -135,7 +138,19 @@ function attachRoom(room, identity, Callbacks) {
         getGame().setLeaderboards(payload)
         break
       case 'ghostThrow':
-        runtime.ghostThrows.push({ ...payload, startedAt: performance.now() })
+        // Their swing plays out here as on their screen, and the ball leaves the tee
+        // as the club meets it.
+        startRemoteSwing(payload.sid)
+        runtime.ghostThrows.push({
+          ...payload,
+          planeId: payload.ballId || payload.planeId,
+          // From the tee: a little ahead of them (they face east), low, small - it grows
+          // as it flies.
+          x: payload.x + 0.95,
+          y0: 0.3,
+          scale: 1.1,
+          startedAt: performance.now() + FULL_RELEASE_DELAY * 1000,
+        })
         break
       case 'kicked':
         leaving = true
@@ -186,6 +201,7 @@ function attachRoom(room, identity, Callbacks) {
     window.removeEventListener('pagehide', onPageHide)
     clearInterval(posId)
     sendLook = () => {}
+    endDuel()
     clearRemotePlayers()
     if (replaced || code === DUPLICATE_LOGIN) {
       getGame().setNet({ mode: 'replaced', message: 'Playing in another window' })

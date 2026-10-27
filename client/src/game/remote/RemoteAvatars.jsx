@@ -3,6 +3,7 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 
 import { remotePlayers } from '../../net/remotePlayers'
 import { getQuality } from '../../store/quality'
+import HeldClub from '../HeldClub'
 import { BloxityAvatar } from '../PlayerAvatar'
 import { FACE_FLAT, FACE_UPRIGHT, GRIP_FLAT, GRIP_UPRIGHT, heldFlatness } from '../playerPose'
 import { runtime } from '../runtime'
@@ -13,17 +14,18 @@ const PICK_MS = 500
 const MAX_SPEED = 7.5 * 1.45
 
 /**
- * One other player as their real Bloxity avatar, dressed as they are and posed by the
- * same playerPose as yours, from what the network says they're doing: walking pace,
- * jumping, and each throw. Their frisbee is drawn by RemotePlayers, which reads the
- * grip this component keeps on their palm (`r.grip`).
+ * One other player as their real Bloxity avatar, dressed as they are, holding their own
+ * club, and posed by the same playerPose as yours from what the network says they're
+ * doing: walking pace, jumping, standing over the ball, each swing, and a duel's
+ * ending. Their training shots are drawn by RemotePlayers, which reads the grip this
+ * component keeps on their palm (`r.grip`).
  */
 function RemoteAvatar({ sessionId, look }) {
   const groupRef = useRef(null)
   const handRef = useRef(null)
   const gripRef = useRef(null)
   const lastY = useRef(null)
-  const motionRef = useRef({ time: 0, speed: 0, grounded: true, maxSpeed: MAX_SPEED, vy: 0, stride: 0, throwT: 0, catchT: 0 })
+  const motionRef = useRef({ time: 0, speed: 0, grounded: true, maxSpeed: MAX_SPEED, vy: 0, stride: 0, throwT: 0, swingT: 0, catchT: 0, address: 1, emote: null, emoteT: 0, hinge: 0 })
 
   useEffect(() => {
     const r = remotePlayers.get(sessionId)
@@ -53,7 +55,15 @@ function RemoteAvatar({ sessionId, look }) {
     lastY.current = y
     m.stride += delta * (5 + 6 * Math.min(1, r.speed / MAX_SPEED))
     m.throwT = r.throwT
+    m.swingT = r.swingT
     m.catchT = r.catchT
+    // Over the ball when standing still, swinging or duelling, as you are; up for a
+    // duel's dance.
+    const addressing = !r.emote && (r.throwT > 0 || r.swingT > 0 || r.dueling || r.speed < 0.3)
+    r.address += ((addressing ? 1 : 0) - r.address) * (1 - Math.exp(-(r.throwT > 0 ? 14 : 5) * delta))
+    m.address = r.address
+    m.emote = r.emote
+    m.emoteT = r.emote ? (performance.now() - r.emoteAt) / 1000 : 0
 
     const grip = gripRef.current
     if (grip) {
@@ -67,6 +77,7 @@ function RemoteAvatar({ sessionId, look }) {
     <group ref={groupRef}>
       <group ref={handRef}>
         <group ref={gripRef} scale={0.95} />
+        <HeldClub motionRef={motionRef} sessionId={sessionId} />
       </group>
       <BloxityAvatar equipped={look?.equipped} proportions={look?.proportions} motionRef={motionRef} handRef={handRef} targetHeight={1.8} />
     </group>

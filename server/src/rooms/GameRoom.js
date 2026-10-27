@@ -1,6 +1,7 @@
 import { Room } from '@colyseus/core'
 
-import { applyOfflineProgress } from '../../../shared/logic.js'
+import { DuelArena } from '../../../shared/duel.js'
+import { applyOfflineProgress, awardDuelCandy, ballStyleId, duelShot } from '../../../shared/logic.js'
 import { PlayerSession } from '../../../shared/session.js'
 import { clampToWalkable, MAX_MOVE_SPEED, SPAWN } from '../../../shared/world.js'
 import { getSphinxStock, loadProfile, saveProfile, takeSphinx } from '../db.js'
@@ -61,10 +62,32 @@ export class GameRoom extends Room {
     this.updateListing()
     liveRooms.add(this)
 
+    // The 1v1 duel on the blue and red rings, for the whole lobby.
+    this.duel = new DuelArena({
+      send: (payload) => this.broadcast('duel', payload),
+      shoot: (sid, strike) => {
+        const member = this.members.get(sid)
+        return member ? duelShot(member.session.profile, strike) : null
+      },
+      // No training clicks from a duelist mid-duel.
+      hold: (sid, until) => {
+        const session = this.members.get(sid)?.session
+        if (session) session.busyUntil = until ? Math.max(session.busyUntil, until) : Math.min(session.busyUntil, Date.now())
+      },
+      finish: (winnerSid) => {
+        const member = this.members.get(winnerSid)
+        if (!member) return
+        member.session.badge('duelWin')
+        awardDuelCandy(member.session.profile)
+        member.session.sendProfile()
+      },
+    })
+
     // Everything the client can ask for goes through the player's session.
     this.onMessage('*', (client, type, payload) => {
       if (type === 'pos') return this.handlePosition(client, payload)
       if (type === 'look') return this.handleLook(client, payload)
+      if (type === 'duelHit') return this.duel.hit(client.sessionId, Number(payload?.strike), Date.now())
       const member = this.members.get(client.sessionId)
       if (!member) return
       member.session.handle(String(type), payload || {}, Date.now())
@@ -117,7 +140,7 @@ export class GameRoom extends Room {
       onThrow: (result) => {
         this.broadcast(
           'ghostThrow',
-          { sid: client.sessionId, distance: result.distance, duration: result.duration, planeId: profile.equippedPlane, x: player.x, z: player.z },
+          { sid: client.sessionId, distance: result.distance, duration: result.duration, planeId: profile.equippedPlane, ballId: ballStyleId(profile), x: player.x, z: player.z },
           { except: client },
         )
       },
@@ -163,6 +186,7 @@ export class GameRoom extends Room {
   async onLeave(client) {
     const member = this.members.get(client.sessionId)
     this.state.players.delete(client.sessionId)
+    this.duel.leave(client.sessionId)
     if (member) {
       if (activePlayers.get(member.playerId)?.client === client) activePlayers.delete(member.playerId)
       this.members.delete(client.sessionId)
@@ -197,6 +221,7 @@ export class GameRoom extends Room {
   async evict(client, reason) {
     const member = this.members.get(client.sessionId)
     this.state.players.delete(client.sessionId)
+    this.duel.leave(client.sessionId)
     if (member && !member.kicked) {
       member.kicked = true
       await saveProfile(member.session.profile, member.owner)
@@ -233,6 +258,8 @@ export class GameRoom extends Room {
     if (player.rebirths !== p.rebirths) player.rebirths = p.rebirths
     if (player.level !== p.level) player.level = p.level
     if (player.planeId !== p.equippedPlane) player.planeId = p.equippedPlane
+    const ball = ballStyleId(p)
+    if (player.ballId !== ball) player.ballId = ball
     const pets = p.equippedPets
       .map((uid) => p.pets.find((pet) => pet.uid === uid)?.id)
       .filter(Boolean)
@@ -304,5 +331,11 @@ export class GameRoom extends Room {
       member.session.tick(dt, now)
       this.syncPlayer(sessionId)
     }
+    // Everyone still here (a seat held for a reconnect is still in the state).
+    const positions = new Map()
+    for (const [sessionId, player] of this.state.players) {
+      if (this.members.has(sessionId)) positions.set(sessionId, player)
+    }
+    this.duel.tick(now, positions)
   }
 }

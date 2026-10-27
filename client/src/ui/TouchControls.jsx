@@ -24,8 +24,8 @@ const roundButton = (size, background) => ({
 
 /**
  * On-screen controls for touch devices: a floating joystick that appears wherever the
- * left side of the screen is touched, a jump button, and a throw button - a click
- * throw for Power anywhere, or the real throw off the stage in the throw area.
+ * left side of the screen is touched, a jump button, and a hit button - a click
+ * hit for Power anywhere, or the real hit off the tee in the Hit Zone.
  *
  * Writes straight into `runtime.input` and moves the knob through refs, so dragging
  * never re-renders React.
@@ -35,7 +35,7 @@ export function TouchControls() {
   const baseRef = useRef(null)
   const knobRef = useRef(null)
   const active = useRef({ id: null, x: 0, y: 0 })
-  // No throwing while a menu is open or a frisbee is already in the air.
+  // No hitting while a menu is open or a ball is already in the air.
   const busy = useGame((s) => Boolean(s.panel || s.flight || s.throwResult))
 
   // A touchscreen laptop can start with a mouse; show the controls on first touch.
@@ -134,7 +134,7 @@ export function TouchControls() {
       {!busy && (
         <button
           type="button"
-          aria-label="Throw"
+          aria-label="Hit"
           className="pp-btn pp-chunky absolute z-20 flex touch-none items-center justify-center rounded-full"
           style={{ ...roundButton(84, GRADIENTS.goldButton), right: 98, bottom: 30 }}
           onPointerDown={(e) => {

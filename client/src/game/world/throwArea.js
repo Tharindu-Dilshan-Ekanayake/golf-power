@@ -1,8 +1,8 @@
 import { CanvasTexture, LinearMipmapLinearFilter, MeshBasicMaterial, PlaneGeometry, SRGBColorSpace } from 'three'
 
-import { SHOP_BOARD, STAGE, THROW_AREA } from '@shared/world'
+import { SHOP_BOARD, SHOP_FACE, STAGE, THROW_AREA } from '@shared/world'
 
-import { ARCH_SIGN } from './stage'
+import { TRAINING_SIGN } from './structures'
 
 const FONT = '"Fredoka One", "Arial Rounded MT Bold", sans-serif'
 
@@ -64,14 +64,15 @@ function paintText(text, maxTexture, { aspect, fill, edge, slant = 0.22, worldWi
     depthWrite: false,
     polygonOffset: true,
     polygonOffsetFactor: -2,
+    polygonOffsetUnits: -8,
   })
   const geometry = new PlaneGeometry(worldWidth, worldWidth * aspect)
   return { geometry, material, texture }
 }
 
 /**
- * The painted signs, drawn once the font has loaded: "THROW AREA" across the throw
- * pad, "THROW!" on the arch and "FRISBEES" on the shop's board. Each sits a couple of
+ * The painted signs, drawn once the font has loaded: "HIT ZONE" across the Hit Zone,
+ * "GOLF CLUBS" on the shop's sign and "TRAINING" on the sign above the bays. Each sits a couple of
  * centimetres proud of what it's painted on, so it can't sink into it.
  *
  * @param {number} maxTexture texture size cap for the preset
@@ -81,37 +82,37 @@ export async function createPaintedSigns(maxTexture) {
   await document.fonts?.load(`64px ${FONT}`).catch(() => null)
 
   const padWidth = THROW_AREA.maxX - THROW_AREA.minX
-  const throwArea = paintText('THROW AREA', maxTexture, {
+  const throwArea = paintText('HIT ZONE', maxTexture, {
     aspect: 0.24,
-    fill: ['#ffffff', '#c6f2ff', '#3fb6ff'],
-    edge: '#1f5fd6',
-    worldWidth: padWidth,
+    fill: ['#ffffff', '#ffffff', '#e4dcea'],
+    edge: '#2a0f16',
+    worldWidth: padWidth * 0.8,
   })
-  // Just above the pad's raised yellow fill (its top is 0.12 up), centred on it.
-  throwArea.position = [0, STAGE.height + 0.15, (THROW_AREA.minZ + THROW_AREA.maxZ) / 2]
+  // A hair above the strip's surface (players stand on it), centred on the tee area.
+  throwArea.position = [0, STAGE.height + 0.012, (THROW_AREA.minZ + THROW_AREA.maxZ) / 2]
   throwArea.rotation = [-Math.PI / 2, 0, 0]
 
-  const boardWidth = SHOP_BOARD.maxZ - SHOP_BOARD.minZ - 3
-  const board = paintText('FRISBEES', maxTexture, {
+  const boardWidth = SHOP_BOARD.maxZ - SHOP_BOARD.minZ - 8
+  const board = paintText('GOLF CLUBS', maxTexture, {
     aspect: 0.26,
-    fill: ['#fffbd0', '#ffd21f', '#ff8a00'],
-    edge: '#c2410c',
+    fill: ['#ffffff', '#f4efe9', '#d6cce0'],
+    edge: '#3a1a1c',
     slant: 0.14,
     worldWidth: boardWidth,
   })
-  // On the board's navy face (0.4 west of its centre line), turned to the plaza.
-  board.position = [SHOP_BOARD.x - 0.43, SHOP_BOARD.top - 4.1, (SHOP_BOARD.minZ + SHOP_BOARD.maxZ) / 2]
-  board.rotation = [0, -Math.PI / 2, 0]
+  // On the sign's brick face on the wall, turned to the plaza.
+  board.position = [SHOP_BOARD.x + SHOP_FACE * 0.43, SHOP_BOARD.top - 3, (SHOP_BOARD.minZ + SHOP_BOARD.maxZ) / 2]
+  board.rotation = [0, (SHOP_FACE * Math.PI) / 2, 0]
 
-  const arch = paintText('THROW!', maxTexture, {
-    aspect: 0.3,
-    fill: ['#fffbd0', '#ffd21f', '#ff8a00'],
-    edge: '#c2410c',
-    slant: 0.14,
-    worldWidth: ARCH_SIGN.width - 0.3,
+  const training = paintText('TRAINING', maxTexture, {
+    aspect: 0.26,
+    fill: ['#ffffff', '#ffffff', '#e4dcea'],
+    edge: '#2a0f16',
+    slant: 0.16,
+    worldWidth: TRAINING_SIGN.width,
   })
-  arch.position = [0, ARCH_SIGN.y, ARCH_SIGN.faceZ + 0.03]
-  arch.rotation = [0, 0, 0]
+  training.position = [TRAINING_SIGN.x + Math.sin(TRAINING_SIGN.rotY) * 0.05, TRAINING_SIGN.y, TRAINING_SIGN.z]
+  training.rotation = [0, TRAINING_SIGN.rotY, 0]
 
-  return [throwArea, board, arch]
+  return [throwArea, board, training]
 }

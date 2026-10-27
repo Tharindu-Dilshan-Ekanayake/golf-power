@@ -8,11 +8,13 @@ import {
   SRGBColorSpace,
 } from 'three'
 
+import { hash2 } from '@shared/rng'
 import {
   EGG_STANDS,
   FREE_REWARD,
   SHOP,
   LANE_COUNT,
+  LANE_DIR,
   LANE_NEAR_X,
   LANE_TARGET_X,
   LANE_WIDTH,
@@ -22,7 +24,6 @@ import {
   PORTAL,
   STAGE,
   THROW_LINE_Z,
-  WATERFALL,
 } from '@shared/world'
 
 import { PALETTE } from '../sceneStyle'
@@ -68,6 +69,23 @@ function painter(ctx) {
   return { rect, bordered, disc }
 }
 
+/** Smooth value noise in 0..1 at `scale` world units, for the grass patches. */
+function noise(x, z, scale, seed) {
+  const fx = x / scale
+  const fz = z / scale
+  const ix = Math.floor(fx)
+  const iz = Math.floor(fz)
+  const tx = fx - ix
+  const tz = fz - iz
+  const sx = tx * tx * (3 - 2 * tx)
+  const sz = tz * tz * (3 - 2 * tz)
+  const a = hash2(ix, iz, seed)
+  const b = hash2(ix + 1, iz, seed)
+  const c = hash2(ix, iz + 1, seed)
+  const d = hash2(ix + 1, iz + 1, seed)
+  return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz
+}
+
 export function createGroundMap(maxTexture) {
   const canvas = document.createElement('canvas')
   canvas.width = MAP_W
@@ -77,39 +95,34 @@ export function createGroundMap(maxTexture) {
 
   rect(MAP, PALETTE.plaza)
 
-  // Lane apron along the west side, behind the lane floors.
-  const lanesMinZ = laneCenterZ(LANE_COUNT - 1) - LANE_WIDTH / 2 - 2
-  const lanesMaxZ = laneCenterZ(0) + LANE_WIDTH / 2 + 2
-  bordered({ minX: LANE_TARGET_X - 3, maxX: LANE_NEAR_X + 3, minZ: lanesMinZ, maxZ: lanesMaxZ }, PALETTE.apron, PALETTE.apronEdge)
-
-  // Paths: a walkway along the lane entrances, spawn to the stage steps, spawn to the
-  // lanes, the shop, the eggs, and a spur up to the portal.
-  const eggsZ = EGG_STANDS[0].z
-  const paths = [
-    { minX: LANE_NEAR_X + 3, maxX: LANE_NEAR_X + 8, minZ: lanesMinZ, maxZ: lanesMaxZ },
-    { minX: -5, maxX: 5, minZ: STAGE.maxZ, maxZ: 16 },
-    { minX: LANE_NEAR_X + 3, maxX: -5, minZ: 11, maxZ: 17 },
-    { minX: 5, maxX: SHOP.minX + 1, minZ: -12, maxZ: -6 },
-    { minX: 5, maxX: 46, minZ: eggsZ - 8, maxZ: eggsZ - 4 },
-    { minX: PORTAL.x - 3, maxX: PORTAL.x + 3, minZ: PORTAL.z + 3, maxZ: -12 },
-  ]
-  for (const p of paths) bordered(p, PALETTE.path, PALETTE.pathEdge)
-  // Paths overlap; repaint the interiors so crossings don't show edges.
-  for (const p of paths) {
-    rect({ minX: p.minX + 1, maxX: p.maxX - 1, minZ: p.minZ + 1, maxZ: p.maxZ - 1 }, PALETTE.path)
+  // Grass growing through the cobbles in big ragged patches, as in the reference:
+  // thickest along the walls, round the bays and in front of the shop, thinning out
+  // over the open middle and the avenue to the Hit Zone. One texel is one stud, so the
+  // edges come out jagged along the stud grid.
+  ctx.fillStyle = PALETTE.lawn
+  for (let z = Math.ceil(PLAZA.minZ); z < PLAZA.maxZ; z += 1) {
+    for (let x = Math.ceil(PLAZA.minX); x < PLAZA.maxX; x += 1) {
+      const edge = Math.min(x - PLAZA.minX, PLAZA.maxX - x, PLAZA.maxZ - z)
+      let bias = edge < 5 ? 0.22 : edge < 10 ? 0.08 : 0
+      if (Math.abs(x) < 7 && z < 20) bias -= 0.35
+      if (z < STAGE.maxZ + 3) bias -= 0.5
+      const n = noise(x, z, 9, 3) * 0.65 + noise(x, z, 3.5, 8) * 0.35
+      if (n + bias > 0.6) ctx.fillRect(x - MAP.minX, z - MAP.minZ, 1, 1)
+    }
   }
-  bordered({ minX: -9, maxX: 9, minZ: 7, maxZ: 21 }, PALETTE.path, PALETTE.pathEdge)
 
-  // Egg plaza and the shop yard.
-  bordered({ minX: 6, maxX: PLAZA.maxX - 1, minZ: eggsZ - 4, maxZ: LEADERBOARDS[0].z - 1 }, PALETTE.apron, PALETTE.apronEdge)
-  rect({ minX: SHOP.minX, maxX: SHOP.maxX, minZ: SHOP.minZ, maxZ: SHOP.maxZ }, PALETTE.shopFloor)
+  // Turf under and around the training bays, and a lawn before the club shop.
+  const lanesMinZ = laneCenterZ(0) - LANE_WIDTH / 2 - 2
+  const lanesMaxZ = laneCenterZ(LANE_COUNT - 1) + LANE_WIDTH / 2 + 2
+  const lanesX = [LANE_NEAR_X - LANE_DIR * 3, LANE_TARGET_X + LANE_DIR * 4]
+  rect({ minX: Math.min(...lanesX), maxX: Math.max(...lanesX), minZ: lanesMinZ, maxZ: lanesMaxZ }, PALETTE.apron)
+  rect({ minX: SHOP.minX, maxX: SHOP.maxX + 3, minZ: SHOP.minZ - 2, maxZ: SHOP.maxZ + 2 }, PALETTE.shopFloor)
 
-  disc(PORTAL.x, PORTAL.z, 6, PALETTE.apronEdge)
-  disc(PORTAL.x, PORTAL.z, 5, PALETTE.apron)
-  disc(FREE_REWARD.x, FREE_REWARD.z, 4, PALETTE.apronEdge)
-
-  // Waterfall pool at the foot of the north cliff.
-  rect({ minX: WATERFALL.x - 6, maxX: WATERFALL.x + 6, minZ: WATERFALL.z, maxZ: WATERFALL.z + 5 }, PALETTE.water)
+  // Darker stone round the portal, the reward stand and the back wall's displays.
+  disc(PORTAL.x, PORTAL.z - 2, 5, PALETTE.pathEdge)
+  disc(FREE_REWARD.x, FREE_REWARD.z, 3, PALETTE.pathEdge)
+  const eggsZ = EGG_STANDS[0].z
+  bordered({ minX: -27, maxX: 25, minZ: eggsZ - 4, maxZ: LEADERBOARDS[0].z + 2 }, PALETTE.plazaAlt, PALETTE.pathEdge)
 
   const texture = new CanvasTexture(canvas)
   texture.colorSpace = SRGBColorSpace
@@ -126,10 +139,11 @@ export function createGroundMap(maxTexture) {
  * on the world grid. Outside the map, clamp-to-edge repeats the plaza colour.
  */
 export function createGroundGeometry() {
-  const minX = -280
-  const maxX = 280
+  // Just the island: beyond the plaza the hills' cliffs drop straight into the sea.
+  const minX = MAP.minX
+  const maxX = MAP.maxX
   const minZ = GROUND_NORTH_EDGE
-  const maxZ = 280
+  const maxZ = MAP.maxZ
   const geometry = new PlaneGeometry(maxX - minX, maxZ - minZ)
   geometry.rotateX(-Math.PI / 2)
   geometry.translate((minX + maxX) / 2, 0, (minZ + maxZ) / 2)

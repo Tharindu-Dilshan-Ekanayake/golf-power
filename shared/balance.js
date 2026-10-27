@@ -26,76 +26,159 @@ export const LEVEL_GAIN = 0.15
  * `rebirths` = rebirths needed; `product` = the SHOP item that unlocks it instead.
  */
 export const LANES = [
-  { id: 'target', name: 'Target', mult: 1, rebirths: 0 },
-  { id: 'ring', name: 'Green Ring', mult: 2, rebirths: 1 },
-  { id: 'star', name: 'Blue Star', mult: 3, rebirths: 3 },
-  { id: 'diamond', name: 'Purple Diamond', mult: 5, rebirths: 6 },
-  { id: 'wheel', name: 'Gold Wheel', mult: 8, rebirths: 9 },
-  { id: 'hex', name: 'Lava Hex', mult: 12, rebirths: 12 },
-  { id: 'crystal', name: 'Red Crystal', mult: 18, rebirths: 15 },
-  { id: 'rainbow', name: 'Rainbow Ring', mult: 30, product: 'laneVeryOp', tag: 'VERY OP!' },
-  { id: 'galaxy', name: 'Galaxy Portal', mult: 100, product: 'laneBestOverall', tag: 'BEST OVERALL!' },
+  { id: 'target', name: 'Pumpkin Bay', mult: 1, rebirths: 0 },
+  { id: 'ring', name: 'Slime Bay', mult: 2, rebirths: 1 },
+  { id: 'star', name: 'Cobweb Bay', mult: 3, rebirths: 3 },
+  { id: 'diamond', name: 'Skull Bay', mult: 5, rebirths: 6 },
+  { id: 'wheel', name: 'Gold Bay', mult: 8, rebirths: 9 },
+  { id: 'hex', name: 'Lava Bay', mult: 12, rebirths: 12 },
+  { id: 'crystal', name: 'Blood Bay', mult: 18, rebirths: 15 },
+  { id: 'rainbow', name: 'Rainbow Bay', mult: 30, product: 'laneVeryOp', tag: 'VERY OP!' },
+  { id: 'galaxy', name: 'Galaxy Bay', mult: 100, product: 'laneBestOverall', tag: 'BEST OVERALL!' },
 ]
 
 // --- Rebirth ----------------------------------------------------------------------
 
-/** Max level by rebirth count: R0 = 2, R1 = 15, R2 = 25, then +10 per rebirth. */
+/**
+ * Max level by rebirth count: R0 = 2, R1 = 15, R2 = 25, then rising with the square root
+ * of the rebirths (R3 37, R10 59, R25 83, R50 108), so each rebirth takes a little
+ * longer than the last but they keep coming every 15-25 minutes however long you play.
+ */
 export function levelCap(rebirths) {
   if (rebirths <= 0) return 2
   if (rebirths === 1) return 15
-  return 25 + (rebirths - 2) * 10
+  return Math.round(25 + 12 * Math.sqrt(rebirths - 2))
 }
 
 /** Power multiplier from rebirths: R0 = x1, R1 = x2, R2 = x3 ... */
 export const rebirthMultiplier = (rebirths) => rebirths + 1
 
-// --- Frisbees ---------------------------------------------------------------------
+// --- Golf clubs ---------------------------------------------------------------------
 
 /**
- * The frisbees you throw. `power` is base power per training throw; `cost` is in Wins.
+ * The golf clubs you hit with. `power` is base power per training hit; `cost` is in Wins.
  *
  * The table (and the profile's `equippedPlane` / `ownedPlanes`) keep their original
- * plane names and ids, so saves from before the switch to frisbees still load.
+ * plane ids, so saves from before the switch to golf clubs still load.
  */
 export const PLANES = [
-  { id: 'paper', name: 'Classic Frisbee', power: 1, cost: 0 },
-  { id: 'sky', name: 'Sky Disc', power: 2, cost: 3 },
-  { id: 'newspaper', name: 'Sunny Disc', power: 5, cost: 28 },
-  { id: 'cardboard', name: 'Pizza Disc', power: 11, cost: 110 },
-  { id: 'racer', name: 'Racer Disc', power: 21, cost: 280 },
-  { id: 'ocean', name: 'Wave Disc', power: 46, cost: 840 },
-  { id: 'jungle', name: 'Jungle Disc', power: 98, cost: 2100 },
-  { id: 'royal', name: 'Royal Disc', power: 210, cost: 5600 },
-  { id: 'crystal', name: 'Crystal Disc', power: 490, cost: 14000 },
-  { id: 'golden', name: 'Golden Disc', power: 1100, cost: 35000 },
+  { id: 'paper', name: 'Rusty Driver', power: 1, cost: 0 },
+  { id: 'sky', name: 'Pumpkin Putter', power: 2, cost: 5 },
+  { id: 'newspaper', name: 'Candy Cane Club', power: 5, cost: 12 },
+  { id: 'cardboard', name: 'Bat Wing Wedge', power: 11, cost: 29 },
+  { id: 'racer', name: 'Spider Iron', power: 21, cost: 69 },
+  { id: 'ocean', name: 'Ghost Driver', power: 46, cost: 170 },
+  { id: 'jungle', name: 'Slime Iron', power: 98, cost: 400 },
+  { id: 'royal', name: 'Witch Broom', power: 210, cost: 960 },
+  { id: 'crystal', name: 'Crystal Skull', power: 490, cost: 2300 },
+  { id: 'golden', name: 'Golden Scythe', power: 1100, cost: 5500 },
   // The second stage: same curve, each about 2.5x the Wins for 2.2x the power.
-  { id: 'candy', name: 'Candy Disc', power: 2400, cost: 90000 },
-  { id: 'ice', name: 'Ice Disc', power: 5300, cost: 225000 },
-  { id: 'lava', name: 'Lava Disc', power: 11500, cost: 560000 },
-  { id: 'thunder', name: 'Thunder Disc', power: 25000, cost: 1400000 },
-  { id: 'neon', name: 'Neon Disc', power: 55000, cost: 3500000 },
-  { id: 'galaxy', name: 'Galaxy Disc', power: 120000, cost: 8800000 },
-  { id: 'dragon', name: 'Dragon Disc', power: 260000, cost: 22000000 },
-  { id: 'rainbow', name: 'Rainbow Disc', power: 570000, cost: 55000000 },
-  { id: 'diamond', name: 'Diamond Disc', power: 1250000, cost: 140000000 },
-  { id: 'cosmic', name: 'Cosmic Disc', power: 2750000, cost: 350000000 },
+  { id: 'candy', name: 'Candy Corn Cannon', power: 2400, cost: 13000 },
+  { id: 'ice', name: 'Frozen Fang', power: 5300, cost: 32000 },
+  { id: 'lava', name: 'Lava Lantern', power: 11500, cost: 76000 },
+  { id: 'thunder', name: 'Thunder Bone', power: 25000, cost: 180000 },
+  { id: 'neon', name: 'Neon Reaper', power: 55000, cost: 440000 },
+  { id: 'galaxy', name: 'Galaxy Ghoul', power: 120000, cost: 1300000 },
+  { id: 'dragon', name: 'Dragon Spine', power: 260000, cost: 3500000 },
+  { id: 'rainbow', name: 'Rainbow Wraith', power: 570000, cost: 8500000 },
+  { id: 'diamond', name: 'Diamond Fang', power: 1250000, cost: 20000000 },
+  { id: 'cosmic', name: 'Cosmic Reaper', power: 2750000, cost: 48000000 },
 ]
 
-// --- Throwing ---------------------------------------------------------------------
+// --- Hitting ----------------------------------------------------------------------
 
-/** distance (m) = base + k * sqrt(power). Tuned so 7.3K power flies ~460 m. */
-export const DISTANCE_BASE = 10
-export const DISTANCE_K = 5.27
+/**
+ * How far a hit flies for a given Power: `[power, metres]` anchors, joined smoothly in
+ * log(power) - every tenfold gain in Power is a clear jump down the course, big early
+ * (the first minute takes you to the second biome), steadier later. Past the last
+ * anchor it keeps the last stretch's slope. Each anchor sits just past a biome's start,
+ * so the biomes fall at even steps of Power.
+ */
+export const DISTANCE_CURVE = [
+  [0, 55],
+  [20, 130],
+  [400, 290],
+  [5000, 500],
+  [1e5, 760],
+  [2e7, 1480],
+  [1e9, 2460],
+  [3e10, 3900],
+  [8e11, 5500],
+  [1.5e13, 7420],
+  [4e14, 9660],
+  [3e15, 12860],
+]
 
-/** Themed track segments. `start` in metres; later zones pay more Wins per metre. */
+/** Themed course biomes. `start` in metres; later zones pay more Wins per metre. */
 export const ZONES = [
-  { id: 'neighbourhood', name: 'Neighbourhood', start: 0, winsPerMeter: 0.3 },
-  { id: 'city', name: 'City', start: 150, winsPerMeter: 0.5 },
-  { id: 'forest', name: 'Forest', start: 450, winsPerMeter: 0.8 },
-  { id: 'desert', name: 'Desert', start: 900, winsPerMeter: 1.2 },
-  { id: 'snow', name: 'Snow', start: 1500, winsPerMeter: 1.8 },
-  { id: 'volcano', name: 'Volcano', start: 2400, winsPerMeter: 2.6 },
-  { id: 'space', name: 'Space', start: 3600, winsPerMeter: 4 },
+  { id: 'neighbourhood', name: 'Pumpkin Patch', start: 0, winsPerMeter: 0.3 },
+  { id: 'city', name: 'Haunted Bog', start: 240, winsPerMeter: 0.5 },
+  { id: 'forest', name: 'Candy Corn Madness', start: 720, winsPerMeter: 0.8 },
+  { id: 'desert', name: 'Spooky Jungle', start: 1440, winsPerMeter: 1.2 },
+  { id: 'snow', name: 'Frozen Crypt', start: 2400, winsPerMeter: 1.8 },
+  { id: 'volcano', name: 'Lava Dungeon', start: 3840, winsPerMeter: 2.6 },
+  { id: 'cemetery', name: 'Cursed Cemetery', start: 5440, winsPerMeter: 3.4 },
+  { id: 'carnival', name: 'Haunted Carnival', start: 7360, winsPerMeter: 4.2 },
+  { id: 'castle', name: 'Vampire Castle', start: 9600, winsPerMeter: 5.2 },
+  { id: 'space', name: 'Moon Realm', start: 12800, winsPerMeter: 6.5 },
+]
+
+// --- Greens and the swing ---------------------------------------------------------
+
+/** Each biome ends in a bullseye green, its hole this many metres before the next gate. */
+export const HOLE_BEFORE_GATE = 28
+/** Metres of every hole on the course: one per biome but the last. */
+export const HOLES = ZONES.slice(1).map((zone) => zone.start - HOLE_BEFORE_GATE)
+
+/**
+ * The green's rings, innermost first: landing within `radius` metres of the hole
+ * multiplies that hit's Wins by `mult`. The hole itself is a hole in one. The client
+ * paints the green from these same radii.
+ *
+ * Balanced against aiming short: a weaker swing (the meter) lets you drop a ball on a
+ * green you'd otherwise fly past, but it only reaches down to SWING_MIN of your full
+ * distance, which pays at most about half the Wins, so even a good ring roughly evens
+ * out with a full hit - the bonus rewards skill, it isn't a farm.
+ */
+export const GREEN_RINGS = [
+  { radius: 1.8, mult: 5, label: 'HOLE IN ONE!' },
+  { radius: 3, mult: 3, label: 'BULLSEYE!' },
+  { radius: 4.8, mult: 2.5, label: 'AMAZING!' },
+  { radius: 6.8, mult: 2, label: 'GREAT SHOT!' },
+  { radius: 11.6, mult: 1.5, label: 'NICE SHOT!' },
+  { radius: 17.5, mult: 1.25, label: 'ON THE GREEN!' },
+]
+
+/**
+ * The swing meter, 0 (bottom) to 1 (top): its PERFECT band hits at full strength;
+ * below it the strength falls away steeply to SWING_MIN at the bottom (half way up is
+ * about 60%); past it (the grey cap) is an over-swing that loses some. Shots also scatter by up to SHOT_SCATTER either way, so a
+ * hole in one stays a thrill rather than a sure thing.
+ */
+export const SWING_PERFECT = [0.78, 0.92]
+export const SWING_MIN = 0.25
+export const SWING_OVER = 0.82
+export const SHOT_SCATTER = 0.008
+/**
+ * Candy Corn, the Halloween event's currency (kept in the player's save): every hit
+ * earns 1 plus 1 for each zone its ball reached, a hole in one adds HOLE_IN_ONE_CANDY
+ * and winning a duel DUEL_WIN_CANDY. Spent at the Candy Shop on pumpkin skins.
+ */
+export const HOLE_IN_ONE_CANDY = 10
+export const DUEL_WIN_CANDY = 5
+
+/**
+ * Pumpkin ball skins, sold for Candy Corn. A skin changes only how the ball looks (to
+ * everyone); with none equipped the ball takes the look of the equipped club. The
+ * look of each is `skin_<id>` in the client's ball styles (client/src/game/frisbee.js).
+ */
+export const SKINS = [
+  { id: 'ghost', name: 'Ghost Pumpkin', cost: 30 },
+  { id: 'toxic', name: 'Toxic Slime', cost: 80 },
+  { id: 'blood', name: 'Blood Moon', cost: 200 },
+  { id: 'witch', name: 'Witch Brew', cost: 500 },
+  { id: 'frost', name: 'Frozen Spirit', cost: 1200 },
+  { id: 'king', name: 'Pumpkin King', cost: 3000 },
 ]
 
 /** Trophy pickups along the track: first at 15 m, then every 30 m. */
@@ -108,6 +191,11 @@ export const TROPHY_METERS = 10
 export const flightDuration = (distance) => 2.6 + 1.5 * Math.log(1 + distance / 40)
 /** Landing + result popup after the flight, before the next throw is allowed. */
 export const THROW_RECOVERY = 1.2
+/**
+ * Seconds between hits off the Hit Zone. Flights can be skipped, so this - not the
+ * flight's length - is what paces hitting.
+ */
+export const HIT_COOLDOWN = 2.2
 
 // --- Pets & eggs ------------------------------------------------------------------
 
@@ -152,11 +240,11 @@ export const PETS = {
  * sum to 100.
  */
 export const EGGS = {
-  basic: { name: 'Basic', cost: { wins: 25 }, pets: [['cat', 45], ['dog', 30], ['bunny', 20], ['bear', 5]] },
-  meadow: { name: 'Meadow', cost: { wins: 350 }, pets: [['cow', 45], ['parrot', 30], ['fox', 20], ['tiger', 5]] },
-  sunset: { name: 'Sunset', cost: { wins: 4000 }, pets: [['flamingo', 45], ['turtle', 30], ['owl', 20], ['phoenix', 5]] },
-  unicorn: { name: 'Unicorn', cost: { wins: 25000 }, pets: [['pony', 50], ['unicorn', 35], ['pegasus', 15]] },
-  demon: { name: 'Demon', cost: { wins: 60000 }, pets: [['imp', 50], ['bat', 30], ['demon', 15], ['hellhound', 5]] },
+  basic: { name: 'Common Egg', cost: { wins: 60 }, pets: [['cat', 45], ['dog', 30], ['bunny', 20], ['bear', 5]] },
+  meadow: { name: 'Uncommon Egg', cost: { wins: 3000 }, pets: [['cow', 45], ['parrot', 30], ['fox', 20], ['tiger', 5]] },
+  sunset: { name: 'Rare Egg', cost: { wins: 12000 }, pets: [['flamingo', 45], ['turtle', 30], ['owl', 20], ['phoenix', 5]] },
+  unicorn: { name: 'Epic Egg', cost: { wins: 60000 }, pets: [['pony', 50], ['unicorn', 35], ['pegasus', 15]] },
+  demon: { name: 'Haunted Egg', cost: { wins: 300000 }, pets: [['imp', 50], ['bat', 30], ['demon', 15], ['hellhound', 5]] },
 }
 
 export const MAX_EQUIPPED_PETS = 3
@@ -171,10 +259,10 @@ export const POTION_DURATION_MS = 5 * 60 * 1000
 export const ITEMS = {
   potionPower: { name: 'x2 Power Potion', kind: 'potion', boost: 'power', durationMs: POTION_DURATION_MS },
   potionWins: { name: 'x2 Wins Potion', kind: 'potion', boost: 'wins', durationMs: POTION_DURATION_MS },
-  eggMeadow: { name: 'Meadow Egg', kind: 'egg', egg: 'meadow' },
-  eggSunset: { name: 'Sunset Egg', kind: 'egg', egg: 'sunset' },
-  eggUnicorn: { name: 'Unicorn Egg', kind: 'egg', egg: 'unicorn' },
-  eggDemon: { name: 'Demon Egg', kind: 'egg', egg: 'demon' },
+  eggMeadow: { name: 'Uncommon Egg', kind: 'egg', egg: 'meadow' },
+  eggSunset: { name: 'Rare Egg', kind: 'egg', egg: 'sunset' },
+  eggUnicorn: { name: 'Epic Egg', kind: 'egg', egg: 'unicorn' },
+  eggDemon: { name: 'Haunted Egg', kind: 'egg', egg: 'demon' },
 }
 
 
@@ -184,20 +272,20 @@ export const DAILY_REWARDS = [
   { label: 'x2 Wins', icon: 'potionWins', sub: '5m', grant: { item: 'potionWins' } },
   { label: 'Dragon', icon: 'pet:dragon', sub: 'x1', grant: { pet: 'dragon' } },
   { label: 'x2 Power', icon: 'potionPower', sub: '5m', grant: { item: 'potionPower' } },
-  { label: 'Unicorn Egg', icon: 'egg:unicorn', sub: 'x1', grant: { item: 'eggUnicorn' } },
+  { label: 'Epic Egg', icon: 'egg:unicorn', sub: 'x1', grant: { item: 'eggUnicorn' } },
   { label: 'x2 Power', icon: 'potionPower', sub: '5m', grant: { item: 'potionPower' } },
   { label: 'x2 Wins', icon: 'potionWins', sub: '5m', grant: { item: 'potionWins' } },
-  { label: 'Demon Egg', icon: 'egg:demon', sub: 'x1', grant: { item: 'eggDemon' } },
+  { label: 'Haunted Egg', icon: 'egg:demon', sub: 'x1', grant: { item: 'eggDemon' } },
 ]
 
 /** Claimable once each per session, after this many minutes played. */
 export const PLAYTIME_REWARDS = [
-  { minutes: 5, label: '+50 Wins', icon: 'trophy', grant: { wins: 50 } },
+  { minutes: 5, label: '+250 Wins', icon: 'trophy', grant: { wins: 250 } },
   { minutes: 10, label: 'x2 Power', icon: 'potionPower', grant: { item: 'potionPower' } },
-  { minutes: 15, label: 'Meadow Egg', icon: 'egg:meadow', grant: { item: 'eggMeadow' } },
+  { minutes: 15, label: 'Uncommon Egg', icon: 'egg:meadow', grant: { item: 'eggMeadow' } },
   { minutes: 30, label: 'x2 Wins', icon: 'potionWins', grant: { item: 'potionWins' } },
-  { minutes: 45, label: '+1K Wins', icon: 'trophy', grant: { wins: 1000 } },
-  { minutes: 60, label: 'Sunset Egg', icon: 'egg:sunset', grant: { item: 'eggSunset' } },
+  { minutes: 45, label: 'Rare Egg', icon: 'egg:sunset', grant: { item: 'eggSunset' } },
+  { minutes: 60, label: 'Epic Egg', icon: 'egg:unicorn', grant: { item: 'eggUnicorn' } },
 ]
 
 /** The stand by spawn: a pet the first time, a potion on later sessions. */
@@ -214,15 +302,15 @@ export const WORLD2_POWER = 2.5e6
 // --- Premium ----------------------------------------------------------------------
 
 /**
- * The shop. Wins are the game's only currency: everything here, like frisbees and
+ * The shop. Wins are the game's only currency: everything here, like clubs and
  * eggs, is bought with them. `pass` = permanent unlock; `consumable` = grants every
  * time. Power packs are priced at a few throws' Wins for a player at that power, so
  * they speed you up without replacing the training loop.
  */
 export const SHOP = {
-  power100k: { name: '+100K Power', price: 5000, kind: 'consumable', grant: { power: 1e5 } },
-  power1m: { name: '+1M Power', price: 40000, kind: 'consumable', grant: { power: 1e6 } },
-  power10m: { name: '+10M Power', price: 200000, kind: 'consumable', grant: { power: 1e7 } },
+  power100k: { name: '+100K Power', price: 4000, kind: 'consumable', grant: { power: 1e5 } },
+  power1m: { name: '+1M Power', price: 25000, kind: 'consumable', grant: { power: 1e6 } },
+  power10m: { name: '+10M Power', price: 150000, kind: 'consumable', grant: { power: 1e7 } },
   laneVeryOp: { name: 'VERY OP! Lane', price: 150000, kind: 'pass' },
   laneBestOverall: { name: 'BEST OVERALL! Lane', price: 2000000, kind: 'pass' },
   sphinx: { name: 'Sphinx', price: 2500000, kind: 'consumable', grant: { pet: 'sphinx' }, stock: 1000 },
@@ -233,19 +321,25 @@ export const SPHINX_STOCK_DEFAULT = 954
 
 // --- Tutorial & badges ------------------------------------------------------------
 
-/** Each step completes when its event fires. */
+/**
+ * A new player's guide, one step at a time; each completes when its event fires and the
+ * last ends it (the banner, the ground arrows and the HIT! arrow all go): hit the ball,
+ * train in the free bay, rebirth, then spend Wins on a new golf club. The banner words
+ * the steps itself where they depend on the player (see TopCenter.jsx).
+ */
 export const TUTORIAL = [
-  { text: 'Throw one time', event: 'throw', target: 'throw' },
-  { text: 'Go to the FREE Training Area', event: 'train', target: 'lane0' },
-  { text: 'Get your first Rebirth', event: 'rebirth', target: 'rebirth' },
-  { text: 'Buy a better frisbee in the Shop', event: 'buyPlane', target: 'hangar' },
-  { text: 'Hatch a pet from an egg', event: 'hatch', target: 'eggs' },
+  { text: 'Go to the Hit Zone and hit the ball', event: 'throw', target: 'throw' },
+  { text: 'Train in the FREE Training Bay', event: 'train', target: 'lane0' },
+  { text: 'Fill the level bar, then Rebirth', event: 'rebirth', target: 'rebirth' },
+  { text: 'Buy a new golf club', event: 'buyPlane', target: 'hangar' },
 ]
 
 export const BADGES = {
-  firstThrow: { name: 'First Throw' },
+  firstThrow: { name: 'First Hit' },
   firstRebirth: { name: 'First Rebirth' },
   firstPet: { name: 'Pet Owner' },
   kilometer: { name: 'Kilometre Club' },
   world2: { name: 'World Traveller' },
+  holeInOne: { name: 'Hole in One' },
+  duelWin: { name: 'Duel Champion' },
 }

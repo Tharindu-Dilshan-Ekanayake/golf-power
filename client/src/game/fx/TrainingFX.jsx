@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Matrix4, Quaternion, Vector3 } from 'three'
 
 import { formatNumber } from '@shared/format'
+import { ballStyleId } from '@shared/logic'
 
 import { sfx } from '../../audio/sfx'
 import { getGame } from '../../store/game'
@@ -26,7 +27,7 @@ const _m = new Matrix4()
 const _q = new Quaternion()
 const _p = new Vector3()
 const _prev = new Vector3()
-const _s = new Vector3(0.75, 0.75, 0.75)
+const _s = new Vector3(0.45, 0.45, 0.45)
 const _popupAt = new Vector3()
 const _glowScale = new Vector3()
 
@@ -78,18 +79,21 @@ export function TrainingFX() {
       if (player.throwTimer <= THROW_TIME * (1 - RELEASE_AT)) {
         player.throwTimer = THROW_TIME
         player.throwSeq += 1
+        // The club whooshing down into the ball (a shorter swing, a lighter whoosh).
+        sfx.clubWhoosh(RELEASE_DELAY, 0.7)
       }
       const shot = shots.current.find((s) => !s.active) || shots.current[0]
       if (event.lane >= 0) {
         shot.to.fromArray(targetPoint(event.lane))
-        // Face the target while training, unless walking somewhere.
-        if (player.speed < 0.5) player.yaw = Math.atan2(shot.to.x - player.position.x, shot.to.z - player.position.z)
+        // Aim at the goal, unless walking somewhere (the golfer squares up side-on to it).
+        if (player.speed < 0.5) player.heading = Math.atan2(shot.to.x - player.position.x, shot.to.z - player.position.z)
       } else {
-        // A click throw lands on the ground ahead, wherever you're facing.
+        // A click shot goes straight ahead, the way the player was facing; the golfer
+        // turns side-on to strike it there.
         shot.to.set(
-          player.position.x + Math.sin(player.yaw) * CLICK_RANGE,
+          player.position.x + Math.sin(player.heading) * CLICK_RANGE,
           player.position.y + 0.4,
-          player.position.z + Math.cos(player.yaw) * CLICK_RANGE,
+          player.position.z + Math.cos(player.heading) * CLICK_RANGE,
         )
       }
       shot.active = true
@@ -100,9 +104,9 @@ export function TrainingFX() {
       shot.leveledUp = event.leveledUp
     })
 
-    const frisbeeId = getGame().profile.equippedPlane
+    const frisbeeId = ballStyleId(getGame().profile)
     const glowColor = frisbeeGlow(frisbeeId)
-    const glowSize = 1.3 * getQuality().frisbeeGlow
+    const glowSize = 1.1 * getQuality().frisbeeGlow
     const spin = state.clock.elapsedTime * 25
     let count = 0
     for (const shot of shots.current) {
@@ -114,7 +118,9 @@ export function TrainingFX() {
       if (!shot.released) {
         shot.released = true
         shot.from.copy(player.frisbeeAt)
-        sfx.swish()
+        sfx.clubHit()
+        sfx.ballWhiz()
+        runtime.fx.punch = Math.max(runtime.fx.punch, 0.25)
       }
       if (flight >= 1) {
         shot.active = false

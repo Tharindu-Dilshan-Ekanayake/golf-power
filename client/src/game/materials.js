@@ -36,13 +36,17 @@ export const STYLE = {
   ROAD: 10,
   /** Falling water: bright streaks scrolling down. */
   WATER: 11,
+  /** Two-tone checker in 3 m squares, studded: fairways and walls. */
+  CHECKER: 12,
+  /** Checkered sides under a grass cap with a dripping lip: course walls. */
+  CHECKER_CAP: 13,
 }
 
 /** Shared clock for animated styles; WorldClock advances it once per frame. */
 export const toyTime = { value: 0 }
 
 /** Cap colour for STYLE.TERRAIN blocks; the instance colour is the dirt underneath. */
-export const GRASS_COLOR = new Color('#4fd93a')
+export const GRASS_COLOR = new Color('#2e9a22')
 
 const vertexHead = /* glsl */ `
   attribute float aStyle;
@@ -122,14 +126,26 @@ const fragmentBody = /* glsl */ `
     // Planar projection along the dominant axis keeps studs square on every face.
     vec2 suv = an.y > 0.5 ? vToyPos.xz : (an.x > 0.5 ? vToyPos.zy : vToyPos.xy);
     vec2 sp = suv * uStudScale;
+    #ifdef TOY_NET
+      // Netting: keep only a fine grid of cords; far away the cords thin out to nothing
+      // rather than shimmer.
+      vec2 cord = abs(fract(suv * 1.8) - 0.5);
+      float netFar = smoothstep(0.12, 0.4, max(fwidth(suv.x), fwidth(suv.y)) * 1.8);
+      if (max(cord.x, cord.y) < 0.42 + netFar * 0.1) discard;
+    #endif
     vec3 col = diffuseColor.rgb;
     float style = vToyStyle + 0.5;
 
     if (style < 1.0) {
       col *= toyTile(sp);
     } else if (style < 2.0) {
-      // Grass cap plus a lip a little way down the sides; tan dirt below.
-      bool lip = (vToyTop - vToyPos.y) < 0.45;
+      // Grass cap plus a jagged lip dripping a little way down the sides; brick below.
+      // Each drip's length is picked per 2 m column and per step. The step is the box's top,
+      // rounded rather than floored: terrace tops are whole metres, and interpolation
+      // wobbles the varying a hair either side, which flipped floor() pixel by pixel and
+      // speckled the lip like z-fighting.
+      float drip = 0.4 + 2.2 * pow(toyHash(vec2(floor(suv.x * 0.5), floor(vToyTop + 0.5))), 2.0);
+      bool lip = (vToyTop - vToyPos.y) < drip;
       if (isTop || lip) col = uGrass * (isTop ? 1.0 : 0.88);
       col *= toyTile(sp);
     } else if (style < 3.0) {
@@ -176,13 +192,28 @@ const fragmentBody = /* glsl */ `
       totalEmissiveRadiance += col * 0.35 + star * 0.6;
     } else if (style < 11.0) {
       col *= 0.94 + 0.06 * toyHash(floor(suv * 3.0));
-    } else {
+    } else if (style < 12.0) {
       // Water: streaks falling down the sides, ripples on top.
       float lane = floor(suv.x * 2.0);
       float fall = fract(vToyPos.y * 0.35 + uTime * (1.2 + toyHash(vec2(lane, 1.0)) * 0.6) + toyHash(vec2(lane, 7.0)));
       float streak = isTop ? 0.5 + 0.5 * sin(vToyPos.x * 2.0 + vToyPos.z * 1.3 + uTime * 3.0) : smoothstep(0.7, 1.0, fall);
       col = mix(col, vec3(0.92, 0.98, 1.0), streak * 0.65);
       totalEmissiveRadiance += col * 0.25;
+    } else if (style < 13.0) {
+      vec2 ck = floor(suv / 3.0);
+      col *= 1.0 - 0.13 * mod(ck.x + ck.y, 2.0);
+      col *= toyTile(sp);
+    } else {
+      // Each drip's length is picked per 2 m column and per step. The step is the box's top,
+      // rounded rather than floored: terrace tops are whole metres, and interpolation
+      // wobbles the varying a hair either side, which flipped floor() pixel by pixel and
+      // speckled the lip like z-fighting.
+      float drip = 0.4 + 2.2 * pow(toyHash(vec2(floor(suv.x * 0.5), floor(vToyTop + 0.5))), 2.0);
+      bool lip = (vToyTop - vToyPos.y) < drip;
+      vec2 ck = floor(suv / 3.0);
+      col *= 1.0 - 0.18 * mod(ck.x + ck.y, 2.0);
+      if (isTop || lip) col = uGrass * (isTop ? 1.0 : 0.88);
+      col *= toyTile(sp);
     }
 
     diffuseColor.rgb = col;
@@ -195,7 +226,9 @@ const fragmentBody = /* glsl */ `
  * per variant no matter how many there are.
  *
  * @param {{ instanced?: boolean, vertexColors?: boolean, map?: import('three').Texture,
- *           studScale?: number }} [options]
+ *           studScale?: number, net?: boolean }} [options]
+ *   `net` makes a see-through netting variant: only a grid of cords is drawn. It is its
+ *   own program, so the discard it needs never slows the main toy material.
  *   `studScale` is studs per world unit. Non-instanced meshes default to vertex colours.
  */
 export function createToyMaterial({
@@ -203,8 +236,10 @@ export function createToyMaterial({
   vertexColors = !instanced,
   map = null,
   studScale = 2,
+  net = false,
 } = {}) {
   const material = new MeshLambertMaterial({ color: 0xffffff, vertexColors, map })
+  if (net) material.defines = { TOY_NET: '' }
 
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uStudScale = { value: studScale }
@@ -220,7 +255,7 @@ export function createToyMaterial({
       .replace('#include <color_fragment>', `#include <color_fragment>\n${fragmentBody}`)
   }
   // The stud scale is a uniform, so materials differing only in it share a program.
-  material.customProgramCacheKey = () => 'toy-v2'
+  material.customProgramCacheKey = () => (net ? 'toy-net-v3' : 'toy-v3')
   return material
 }
 
@@ -238,7 +273,8 @@ let shared = null
 export function sharedMaterials() {
   if (!shared) {
     const toy = createToyMaterial({ instanced: true, vertexColors: true, studScale: 2 })
-    shared = { toy, blocks: toy, props: toy }
+    const net = createToyMaterial({ instanced: true, vertexColors: true, studScale: 2, net: true })
+    shared = { toy, blocks: toy, props: toy, net }
   }
   return shared
 }

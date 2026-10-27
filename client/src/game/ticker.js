@@ -1,5 +1,7 @@
 import { isLaneUnlocked } from '@shared/logic'
 import {
+  candyShopNear,
+  duelPadAt,
   eggStandNear,
   FREE_REWARD,
   inThrowArea,
@@ -25,6 +27,8 @@ function sameZone(a, b) {
     a.sphinx === b.sphinx &&
     a.throwArea === b.throwArea &&
     a.pad === b.pad &&
+    a.duelPad === b.duelPad &&
+    a.candyShop === b.candyShop &&
     a.egg === b.egg &&
     a.portal === b.portal &&
     a.freeReward === b.freeReward
@@ -67,6 +71,8 @@ export function startGameTicker() {
       sphinx: Math.hypot(p.x - SPHINX_STAND.x, p.z - SPHINX_STAND.z) < 5.5,
       throwArea: inThrowArea(p.x, p.z),
       pad: padAt(p.x, p.z),
+      duelPad: duelPadAt(p.x, p.z),
+      candyShop: candyShopNear(p.x, p.z),
       egg: egg ? egg.eggId : null,
       portal: Math.hypot(p.x - PORTAL.x, p.z - PORTAL.z) < PORTAL.radius,
       freeReward: Math.hypot(p.x - FREE_REWARD.x, p.z - FREE_REWARD.z) < FREE_REWARD.radius,

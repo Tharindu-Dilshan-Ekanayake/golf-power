@@ -2,6 +2,7 @@ import { useFrame } from '@react-three/fiber'
 import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { Quaternion, Vector3 } from 'three'
 
+import { ballStyleId } from '@shared/logic'
 import { clampToWalkable, groundHeightAt, STATIC_COLLIDERS } from '@shared/world'
 
 import { sfx } from '../audio/sfx'
@@ -9,19 +10,11 @@ import { getGame } from '../store/game'
 import { getQuality } from '../store/quality'
 import ErrorBoundary from '../ui/ErrorBoundary'
 import FallbackAvatar from './FallbackAvatar'
-import { createFrisbeeModel } from './frisbee'
+import { BALL_HALF_HEIGHT, TEE_BALL_SCALE, createFrisbeeModel } from './frisbee'
+import HeldClub from './HeldClub'
 import PlayerAvatar from './PlayerAvatar'
-import {
-  CATCH_TIME,
-  FACE_FLAT,
-  FACE_UPRIGHT,
-  GRIP_FLAT,
-  GRIP_UPRIGHT,
-  heldFlatness,
-  RELEASE_AT,
-  THROW_TIME,
-} from './playerPose'
-import { runtime } from './runtime'
+import { CATCH_TIME, FULL_DOWN_FROM, FULL_RELEASE_AT, FULL_SWING_TIME, RELEASE_AT, THROW_TIME } from './playerPose'
+import { runtime, SIDE_ON } from './runtime'
 import useKeyboard from './useKeyboard'
 
 export const PLAYER_HEIGHT = 1.8
@@ -34,6 +27,8 @@ const GRAVITY = 32
 const JUMP_SPEED = 10.5
 /** Ledges up to this high are walked straight onto (the shop's back stage). */
 const STEP_UP = 1.05
+/** Seconds standing still before the golfer settles over an imaginary ball. */
+const SETTLE_TIME = 0.25
 
 // Scratch objects, reused each frame so the loop allocates nothing.
 const _input = new Vector3()
@@ -44,15 +39,24 @@ const _targetQuat = new Quaternion()
 const _up = new Vector3(0, 1, 0)
 const _clamped = { x: 0, z: 0 }
 
+/** How big the teed-up pumpkin is, how high its centre sits, and its gap from the clubface. */
+const TEE_SCALE = TEE_BALL_SCALE
+const TEE_HEIGHT = BALL_HALF_HEIGHT * TEE_SCALE + 0.01
+const FACE_GAP = 0.2
+
 /**
- * The equipped frisbee in the right hand, glowing in its own colour. It lives inside
- * the hand anchor the avatar moves onto the palm each frame; here it only picks its
- * grip: upright at the side, turning flat through the wind-up and coming back flat
- * from a catch. Hidden while it is away (thrown), so the flying copy reads as this one.
+ * The pumpkin ball, teed up on the ground in front of the player with its face towards
+ * the camera. Shown while standing in the Hit Zone, and through a swing until the club
+ * meets it; every shot (the hit off the Hit Zone, training shots) starts from here, so
+ * `runtime.player.frisbeeAt` is set to it.
  */
-function HeldFrisbee() {
+function TeeBall() {
   const ref = useRef(null)
-  const model = useMemo(() => createFrisbeeModel({ glowSize: 1.5, glowIntensity: 0.6 }), [])
+  const model = useMemo(() => {
+    const m = createFrisbeeModel({ glowSize: 1.2, glowIntensity: 0.1 })
+    m.scale.setScalar(TEE_SCALE)
+    return m
+  }, [])
 
   useEffect(() => () => model.dispose(), [model])
 
@@ -60,17 +64,27 @@ function HeldFrisbee() {
     const group = ref.current
     if (!group) return
     const player = runtime.player
-    group.setFrisbee(getGame().profile.equippedPlane)
-    group.setGlowSize(1.5 * getQuality().frisbeeGlow)
-    group.visible = !player.frisbeeAway
-    const flat = heldFlatness(player.throwTimer, player.catchTimer)
-    group.position.lerpVectors(GRIP_UPRIGHT, GRIP_FLAT, flat)
-    group.quaternion.slerpQuaternions(FACE_UPRIGHT, FACE_FLAT, flat)
-    // Where a throw starts from: the training shots and the stage flight read it.
-    group.getWorldPosition(player.frisbeeAt)
+    group.setFrisbee(ballStyleId(getGame().profile))
+    group.setGlowSize(1.2 * getQuality().frisbeeGlow)
+    // In the Hit Zone, through a training swing, and on a duel ring until the shot.
+    const ahead = getGame().zone.throwArea || player.throwTimer > 0 || (player.dueling && !player.duelShot)
+    group.visible = ahead && !player.frisbeeAway
+    // Just in front of the clubface: where the head rests, a little towards the target
+    // (off the golfer's left).
+    const fx = Math.sin(player.yaw)
+    const fz = Math.cos(player.yaw)
+    const left = player.teeLeft + FACE_GAP
+    group.position.set(
+      player.position.x + fx * player.teeForward + fz * left,
+      player.position.y + TEE_HEIGHT,
+      player.position.z + fz * player.teeForward - fx * left,
+    )
+    // Its face looks south, back at the lobby and the camera framing the shot.
+    group.rotation.y = 0
+    player.frisbeeAt.copy(group.position)
   })
 
-  return <primitive ref={ref} object={model} scale={0.95} />
+  return <primitive ref={ref} object={model} />
 }
 
 /** Pushes a circle out of an axis-aligned rect. Returns true on contact. */
@@ -123,6 +137,9 @@ export function Player({ onAvatarReady }) {
   const keys = useKeyboard()
   const velocity = useRef(new Vector3())
   const vy = useRef(0)
+  const lastFootfall = useRef(0)
+  /** Seconds standing still, for settling into the address. */
+  const stillFor = useRef(0)
 
   /** Handed to the avatar so it can pose itself. A ref: written every frame. */
   const motionRef = useRef({
@@ -134,6 +151,13 @@ export function Player({ onAvatarReady }) {
     stride: 0,
     throwT: 0,
     catchT: 0,
+    swingT: 0,
+    address: 0,
+    /** A duel's ending ('win' | 'lose' | null) and seconds into it; see playerPose. */
+    emote: null,
+    emoteT: 0,
+    /** How far the wrists are cocked, written by computePose for the club. */
+    hinge: 0,
   })
 
   useEffect(() => {
@@ -226,8 +250,11 @@ export function Player({ onAvatarReady }) {
     }
 
     // --- Facing -----------------------------------------------------------------
+    // Walking sets the heading; the body faces it, turning side-on as the golfer settles
+    // over the ball (so a shot, off their left, goes the way they were heading).
     const speed = Math.hypot(velocity.current.x, velocity.current.z)
-    if (speed > 0.3) player.yaw = Math.atan2(velocity.current.x, velocity.current.z)
+    if (speed > 0.3) player.heading = Math.atan2(velocity.current.x, velocity.current.z)
+    player.yaw = player.heading - SIDE_ON * player.address
     if (visualRef.current) {
       _targetQuat.setFromAxisAngle(_up, player.yaw)
       visualRef.current.quaternion.slerp(_targetQuat, 1 - Math.pow(0.0005, delta))
@@ -246,20 +273,40 @@ export function Player({ onAvatarReady }) {
     // --- Throw and catch -------------------------------------------------------
     // The frisbee is away from the release until the swing ends (a training shot), or
     // for the whole flight off the stage; it comes back into the hand with a catch.
-    player.throwTimer = Math.max(0, player.throwTimer - delta)
+    // The swing runs on game time, so the slow-motion strike slows the golfer too.
+    const gameDelta = delta * runtime.timeScale
+    player.throwTimer = Math.max(0, player.throwTimer - gameDelta)
+    // The full swing off the Hit Zone: the whoosh of the downswing as it starts down,
+    // peaking as the club meets the ball.
+    const before = player.swingTimer
+    player.swingTimer = Math.max(0, player.swingTimer - gameDelta)
+    const downAt = FULL_SWING_TIME * (1 - FULL_DOWN_FROM)
+    if (before > downAt && player.swingTimer <= downAt) sfx.clubWhoosh(FULL_SWING_TIME * (FULL_RELEASE_AT - FULL_DOWN_FROM))
     const wasAway = player.frisbeeAway
-    player.frisbeeAway =
-      player.throwTimer > 0 ? player.throwTimer <= THROW_TIME * (1 - RELEASE_AT) : runtime.camera.mode === 'flight'
+    if (player.swingTimer > 0) player.frisbeeAway = player.swingTimer <= FULL_SWING_TIME * (1 - FULL_RELEASE_AT)
+    else player.frisbeeAway = player.throwTimer > 0 ? player.throwTimer <= THROW_TIME * (1 - RELEASE_AT) : runtime.camera.mode === 'flight'
+
+    // Over the ball - lining up a shot, swinging, training, on a duel ring, or just
+    // standing still for a moment - the golfer settles into the address, as on the Hit
+    // Zone; walking, they carry the club at their side (and dancing, or weeping, after a
+    // duel, they stand up for it). Quick into a swing, and quick out of it to walk off.
+    const game = getGame()
+    stillFor.current = player.grounded && speed < 0.3 ? stillFor.current + delta : 0
+    const addressing =
+      !player.emote &&
+      (game.swing || player.swingTimer > 0 || player.throwTimer > 0 || player.dueling || game.zone.lane >= 0 || stillFor.current > SETTLE_TIME)
+    const rate = player.throwTimer > 0 || (!addressing && speed > 0.3) ? 14 : 5
+    player.address += ((addressing ? 1 : 0) - player.address) * (1 - Math.exp(-rate * delta))
     player.catchTimer = wasAway && !player.frisbeeAway ? CATCH_TIME : Math.max(0, player.catchTimer - delta)
     // A new throw starts with the frisbee already in hand.
     if (player.throwTimer > 0) player.catchTimer = 0
 
     // --- Publish motion ---------------------------------------------------------
     player.speed = speed
-    player.anim = !player.grounded ? 'jump' : player.throwTimer > 0 ? 'throw' : speed > 0.5 ? 'walk' : 'idle'
+    player.anim = !player.grounded ? 'jump' : player.throwTimer > 0 || player.swingTimer > 0 ? 'throw' : speed > 0.5 ? 'walk' : 'idle'
 
     const motion = motionRef.current
-    motion.time += delta
+    motion.time += gameDelta
     motion.speed = speed
     motion.grounded = player.grounded
     // Full stride amplitude at a sprint, so walking reads as a walk.
@@ -267,15 +314,27 @@ export function Player({ onAvatarReady }) {
     motion.vy = vy.current
     // Steps quicken with speed: the stride phase runs faster rather than jumping.
     motion.stride += delta * (5 + 6 * Math.min(1, speed / (WALK_SPEED * SPRINT_MULTIPLIER)))
+    // A footstep each time a foot comes down (twice per stride cycle).
+    const footfall = Math.floor(motion.stride / Math.PI)
+    if (footfall !== lastFootfall.current) {
+      lastFootfall.current = footfall
+      if (player.grounded && speed > 1.5) sfx.step()
+    }
     motion.throwT = player.throwTimer
+    motion.swingT = player.swingTimer
+    motion.address = player.address
     motion.catchT = player.catchTimer
+    motion.emote = player.emote
+    motion.emoteT = player.emote ? (performance.now() - player.emoteAt) / 1000 : 0
   })
 
   return (
-    <group ref={groupRef}>
+    <>
+      <TeeBall />
+      <group ref={groupRef}>
       <group ref={visualRef}>
         <group ref={handRef}>
-          <HeldFrisbee />
+          <HeldClub motionRef={motionRef} />
         </group>
         <ErrorBoundary fallback={<FallbackAvatar motionRef={motionRef} handRef={handRef} onReady={onAvatarReady} />}>
           <Suspense fallback={<FallbackAvatar motionRef={motionRef} handRef={handRef} />}>
@@ -284,6 +343,7 @@ export function Player({ onAvatarReady }) {
         </ErrorBoundary>
       </group>
     </group>
+    </>
   )
 }
 

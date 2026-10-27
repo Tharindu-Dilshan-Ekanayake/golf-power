@@ -19,6 +19,8 @@ export const PlayerState = schema(
     /** What their Bloxity avatar wears, as JSON `{ equipped, proportions }` ('' = base). */
     look: t.string(),
     planeId: t.string(),
+    /** The look of their ball (their pumpkin skin, else their club's), for their tee shots. */
+    ballId: t.string(),
     /** Equipped pet species, at most 3. */
     petIds: t.array('string'),
     power: t.float64(),

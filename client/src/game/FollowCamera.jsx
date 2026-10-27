@@ -7,6 +7,7 @@ import { runtime } from './runtime'
 /** How high above the player's feet the camera aims. */
 const LOOK_HEIGHT = 1.6
 
+const BASE_FOV = 60
 const MIN_DISTANCE = 4
 const MAX_DISTANCE = 26
 
@@ -21,10 +22,13 @@ const ZOOM_SENSITIVITY = 0.012
 
 // Higher = snappier. Framerate-independent via the exp() smoothing below.
 const POSITION_SMOOTHING = 10
+/** How quickly the orbit itself (angles, distance) eases to where it's been set. */
+const ORBIT_SMOOTHING = 18
 const LOOK_SMOOTHING = 14
 
 const _desired = new Vector3()
 const _target = new Vector3()
+const _shake = new Vector3()
 
 /**
  * Third-person orbit camera around the player.
@@ -39,6 +43,7 @@ export function FollowCamera() {
   const camera = useThree((s) => s.camera)
   const gl = useThree((s) => s.gl)
   const lookAt = useRef(new Vector3())
+  const smoothed = useRef({ fresh: true, yaw: 0, pitch: 0, distance: 0, offset: new Vector3() })
   const initialised = useRef(false)
 
   useEffect(() => {
@@ -115,7 +120,7 @@ export function FollowCamera() {
     }
   }, [gl])
 
-  useFrame((_state, rawDelta) => {
+  useFrame((state, rawDelta) => {
     if (runtime.camera.mode !== 'follow') {
       // Whoever owns the camera now is moving it; pick up smoothly when it's handed back.
       lookAt.current.copy(runtime.player.position).setY(runtime.player.position.y + LOOK_HEIGHT)
@@ -123,10 +128,30 @@ export function FollowCamera() {
     }
     const delta = Math.min(rawDelta, 0.05)
     const p = runtime.player.position
-    _target.set(p.x, p.y + LOOK_HEIGHT, p.z)
+    // The orbit eases towards where it's been asked to be - round the shortest way, at
+    // `ease` when something (the swing's framing) wants a slow, smooth move - so a
+    // change of angle sweeps round the player instead of cutting through them.
+    const orbit = runtime.camera
+    const s = smoothed.current
+    const k = 1 - Math.exp(-(orbit.ease ?? ORBIT_SMOOTHING) * delta)
+    if (s.fresh) {
+      s.yaw = orbit.yaw
+      s.pitch = orbit.pitch
+      s.distance = orbit.distance
+      s.offset.copy(orbit.lookOffset)
+      s.fresh = false
+    }
+    let dYaw = (orbit.yaw - s.yaw) % (Math.PI * 2)
+    if (dYaw > Math.PI) dYaw -= Math.PI * 2
+    if (dYaw < -Math.PI) dYaw += Math.PI * 2
+    s.yaw += dYaw * k
+    s.pitch += (orbit.pitch - s.pitch) * k
+    s.distance += (orbit.distance - s.distance) * k
+    s.offset.lerp(orbit.lookOffset, k)
+    _target.set(p.x, p.y + LOOK_HEIGHT, p.z).add(s.offset)
 
     // Spherical -> cartesian. yaw 0 puts the camera south of the player, looking north.
-    const { yaw, pitch, distance } = runtime.camera
+    const { yaw, pitch, distance } = s
     const horizontal = Math.cos(pitch) * distance
     _desired.set(
       _target.x + Math.sin(yaw) * horizontal,
@@ -138,6 +163,7 @@ export function FollowCamera() {
     if (runtime.camera.snap) {
       runtime.camera.snap = false
       initialised.current = false
+      s.fresh = true
     }
 
     if (!initialised.current) {
@@ -150,6 +176,21 @@ export function FollowCamera() {
     camera.position.lerp(_desired, 1 - Math.exp(-POSITION_SMOOTHING * delta))
     lookAt.current.lerp(_target, 1 - Math.exp(-LOOK_SMOOTHING * delta))
     camera.lookAt(lookAt.current)
+
+    // The kick of an impact: the view widens and jolts for a moment, then settles.
+    const fx = runtime.fx
+    if (fx.punch > 0.001) {
+      fx.punch *= Math.exp(-9 * delta)
+      camera.position.add(_shake.set((Math.random() - 0.5) * fx.punch * 0.18, (Math.random() - 0.5) * fx.punch * 0.18, 0))
+    } else {
+      fx.punch = 0
+    }
+    const view = state.camera
+    const fov = BASE_FOV + fx.punch * 7
+    if (Math.abs(view.fov - fov) > 0.01) {
+      view.fov = fov
+      view.updateProjectionMatrix()
+    }
   })
 
   return null

@@ -24,12 +24,17 @@ function usePrompt() {
   const laneLocked = useGame((s) => s.zone.laneNear >= 0 && !isLaneUnlocked(s.profile, s.zone.laneNear))
   const atSphinx = useGame((s) => s.zone.sphinx)
   const atPortal = useGame((s) => s.zone.portal)
+  const atCandyShop = useGame((s) => s.zone.candyShop)
   const power = useGame((s) => s.profile.power)
 
   if (atPortal) {
     return power >= WORLD2_POWER
       ? { title: 'World 2', action: 'Coming soon!', run: null }
       : { title: 'World 2', action: `Needs ${formatNumber(WORLD2_POWER)} Power (you have ${formatNumber(power)})`, run: null }
+  }
+
+  if (atCandyShop) {
+    return { title: 'Candy Shop', action: 'Pumpkin Skins', run: () => useGame.getState().openPanel('candy') }
   }
 
   if (atSphinx) {

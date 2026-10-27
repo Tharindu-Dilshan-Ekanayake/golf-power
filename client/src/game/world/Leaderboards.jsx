@@ -31,8 +31,8 @@ function drawBoards(ctx, w, h, leaderboards, profile) {
     const x0 = i * colW
     const pad = colW * 0.03
     const grad = ctx.createLinearGradient(0, 0, 0, h)
-    grad.addColorStop(0, '#1d2a5c')
-    grad.addColorStop(1, '#101634')
+    grad.addColorStop(0, '#2a1650')
+    grad.addColorStop(1, '#150a2e')
     ctx.fillStyle = grad
     ctx.fillRect(x0 + pad, pad, colW - pad * 2, h - pad * 2)
 
@@ -74,7 +74,7 @@ function drawBoards(ctx, w, h, leaderboards, profile) {
 }
 
 /**
- * The three leaderboards behind the egg plaza. Frames are blocks; all three faces are
+ * The three leaderboards behind the egg plaza, in pink, green and gold frames. Frames are blocks; all three faces are
  * one quad mesh on one canvas texture, redrawn when the boards update (once a minute).
  */
 export function Leaderboards() {
@@ -117,8 +117,16 @@ export function Leaderboards() {
 
     const frames = new BlockSet()
     for (const b of LEADERBOARDS) {
-      frames.addOn(b.x, 0, b.z, BOARD_W + 0.8, BOARD_BOTTOM + BOARD_H + 0.6, 0.9, '#2f3f8a')
-      frames.addOn(b.x, BOARD_BOTTOM + BOARD_H + 0.6, b.z, BOARD_W + 1.2, 0.6, 1.1, '#ffd21f', STYLE.GLOW)
+      const frame = BOARD_INFO[b.id].frame
+      frames.addOn(b.x, 0, b.z, BOARD_W + 0.8, BOARD_BOTTOM + BOARD_H + 0.6, 0.9, '#3a2455')
+      frames.addOn(b.x, BOARD_BOTTOM + BOARD_H, b.z, BOARD_W + 1.4, 1.2, 1.1, frame, STYLE.SMOOTH)
+      frames.addOn(b.x, BOARD_BOTTOM + BOARD_H + 1.2, b.z, BOARD_W + 1.0, 0.25, 1.0, '#ffd21f', STYLE.GLOW)
+      // Cobwebbed corners and a pumpkin-orange base trim.
+      frames.addOn(b.x, 0, b.z, BOARD_W + 1.2, 0.5, 1.1, '#ff7a14', STYLE.SMOOTH)
+      // A flag on a pole above each board, in its colour, as in the reference.
+      frames.addOn(b.x, BOARD_BOTTOM + BOARD_H + 1.45, b.z, 0.14, 3.2, 0.14, '#f4efe9', STYLE.SMOOTH)
+      frames.addOn(b.x + 0.75, BOARD_BOTTOM + BOARD_H + 3.6, b.z, 1.4, 0.9, 0.08, frame, STYLE.SMOOTH)
+      frames.addOn(b.x, BOARD_BOTTOM + BOARD_H + 4.65, b.z, 0.3, 0.3, 0.3, '#ffd21f', STYLE.GLOW)
     }
     return { canvas, texture, geometry, material, frames: frames.build(sharedMaterials().blocks) }
   }, [])

@@ -76,7 +76,7 @@ export function EggPanel() {
         }}
       >
         <div className="flex items-center justify-between" style={{ fontSize: u(48), padding: `0 ${u(6)}` }}>
-          <StrokeText stroke={u(9)}>{eggId === 'demon' ? 'Demon Egg' : egg.name}</StrokeText>
+          <StrokeText stroke={u(9)}>{egg.name}</StrokeText>
           <span className="flex items-center" style={{ gap: u(4) }}>
             <Icon name="trophy" size={u(48)} />
             <StrokeText stroke={u(9)} gradient={wins >= cost ? GRADIENTS.gold : 'linear-gradient(180deg,#ffb0a8,#ff4a3b)'}>

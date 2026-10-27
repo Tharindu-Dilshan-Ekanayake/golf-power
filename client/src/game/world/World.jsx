@@ -3,16 +3,17 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { useQuality } from '../../store/quality'
 import { asToyInstance, BlockSet, disposeBlocks, PropBuilder } from '../blocks'
-import { glowTime } from '../glow'
+import { createGroundGlow, disposeGlow, glowTime } from '../glow'
 import { createToyMaterial, sharedMaterials, toyTime } from '../materials'
 import { createGroundGeometry, createGroundMap } from './ground'
+import { glowSpots, recordGlows } from './halloween'
 import { buildEggStands } from './eggs'
+import { buildLandmarks, buildLobbyDecor } from './lobbyDecor'
 import { buildPortalFrame } from './portalFrame'
 import { buildStage } from './stage'
 import { buildLanes, buildShop } from './structures'
 import { buildTargets } from './targets'
 import { createPaintedSigns } from './throwArea'
-import { buildWaterfall } from './waterfall'
 import { buildTerrain } from './terrain'
 
 /**
@@ -57,20 +58,23 @@ export function World() {
     }
   }, [])
 
-  const { blocks, ground, props } = useMemo(() => {
+  const { blocks, ground, props, pools } = useMemo(() => {
     performance.mark('pp:world-start')
     const { decorDensity, maxTexture } = useQuality.getState().settings
     const set = new BlockSet()
+    recordGlows(true)
     buildTerrain(set, { treeDensity: decorDensity })
     buildLanes(set)
     const propBuilder = new PropBuilder()
     buildShop(set, { detail: decorDensity >= 0.75 })
-    buildStage(set, propBuilder, { detail: decorDensity >= 0.75 })
+    buildStage(set, propBuilder)
     buildPortalFrame(set)
-    buildWaterfall(set)
 
+    buildLobbyDecor(set, { detail: decorDensity >= 0.75 })
+    buildLandmarks(set)
     buildTargets(propBuilder)
     buildEggStands(set, propBuilder)
+    recordGlows(false)
 
     const map = createGroundMap(maxTexture)
     const groundMaterial = createToyMaterial({ instanced: false, vertexColors: false, map, studScale: 2 })
@@ -80,6 +84,7 @@ export function World() {
       blocks: set.build(sharedMaterials().blocks),
       props: asToyInstance(propBuilder.build(), sharedMaterials().toy),
       ground: { geometry: createGroundGeometry(), material: groundMaterial, map },
+      pools: createGroundGlow(glowSpots),
     }
   }, [])
 
@@ -91,8 +96,9 @@ export function World() {
       ground.geometry.dispose()
       ground.material.dispose()
       ground.map.dispose()
+      disposeGlow(pools)
     },
-    [blocks, ground, props],
+    [blocks, ground, props, pools],
   )
 
   return (
@@ -100,6 +106,7 @@ export function World() {
       <mesh geometry={ground.geometry} material={ground.material} receiveShadow={shadows} />
       <primitive object={blocks} castShadow={shadows} receiveShadow={shadows} />
       <primitive object={props} castShadow={shadows} receiveShadow={shadows} />
+      <primitive object={pools} />
       {signs.map((sign) => (
         <mesh key={sign.texture.uuid} geometry={sign.geometry} material={sign.material} position={sign.position} rotation={sign.rotation} renderOrder={1} />
       ))}

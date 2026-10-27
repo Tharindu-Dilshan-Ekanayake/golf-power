@@ -14,7 +14,16 @@ import { SPAWN } from '@shared/world'
 export const runtime = {
   player: {
     position: new Vector3(SPAWN.x, 0, SPAWN.z),
-    /** Facing, radians about +Y. PI faces north (-Z), towards the lanes and track. */
+    /**
+     * Where the player is going or aiming, radians about +Y. PI is north (-Z), towards
+     * the course. Walking sets it; a shot flies along it.
+     */
+    heading: Math.PI,
+    /**
+     * Which way the body faces, radians about +Y: the heading while walking, turned
+     * SIDE_ON from it standing over the ball (a golfer's shot goes off their left).
+     * Derived from `heading` by the controller every frame.
+     */
     yaw: Math.PI,
     speed: 0,
     grounded: true,
@@ -22,6 +31,20 @@ export const runtime = {
     anim: 'idle',
     /** Seconds left on the current throw swing, driving the arm pose. */
     throwTimer: 0,
+    /** Seconds left on the full swing off the Hit Zone (see FULL_SWING_TIME). */
+    swingTimer: 0,
+    /** 0-1: how far into the golf stance over the ball (eased by the controller). */
+    address: 0,
+    /** Standing on a duel ring from the swing to the end of the result (see duel.js). */
+    dueling: false,
+    /** This duel's shot is away (the ball is gone from the tee). */
+    duelShot: false,
+    /** A duel's ending, danced or wept: 'win' | 'lose' | null, from `emoteAt` (ms). */
+    emote: null,
+    emoteAt: 0,
+    /** Where the club head rests at the address, relative to the player: ahead, and to the left. */
+    teeForward: 0.95,
+    teeLeft: -0.2,
     /** Throws started so far; other players see one each time it goes up. */
     throwSeq: 0,
     /** True from a throw's release until the frisbee is back in the hand. */
@@ -41,6 +64,12 @@ export const runtime = {
     jump: false,
   },
 
+  /** How fast game time runs: below 1 for slow motion (the strike). Written by the flight. */
+  timeScale: 1,
+
+  /** Screen-feel effects, decayed by FollowCamera: `punch` 0-1 is the impact kick. */
+  fx: { punch: 0 },
+
   camera: {
     /** 'follow' orbits the player; 'flight' is driven by the flight sequence. */
     mode: 'follow',
@@ -49,6 +78,10 @@ export const runtime = {
     distance: 11,
     /** Set to jump the follow camera straight to its target next frame. */
     snap: false,
+    /** Shifts what the follow camera aims at, off the player (the swing's framing). */
+    lookOffset: new Vector3(),
+    /** Overrides how quickly the follow camera eases into place (the swing's slow dolly-in). */
+    ease: null,
   },
 
   /** What the sun's shadow box centres on while the camera chases a thrown plane. */
@@ -76,8 +109,12 @@ export const runtime = {
   shadowCasters: new Set(),
 }
 
+/** How far a golfer standing over the ball turns from the line of the shot: side-on. */
+export const SIDE_ON = Math.PI / 2
+
 /** Puts the player back at spawn, e.g. after a reconnect into a fresh lobby. */
 export function respawn() {
   runtime.player.position.set(SPAWN.x, 0, SPAWN.z)
+  runtime.player.heading = Math.PI
   runtime.player.yaw = Math.PI
 }
