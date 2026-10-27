@@ -2,6 +2,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import {
   Color,
+  Group,
   Matrix4,
   Quaternion,
   Vector3,
@@ -11,9 +12,9 @@ import { inThrowArea, laneAt, THROW_LINE_Z } from '@shared/world'
 
 import { remotePlayers } from '../../net/remotePlayers'
 import { getQuality } from '../../store/quality'
-import { createBoxInstances, createToyInstances, disposeBlocks } from '../blocks'
-import { BALL_HALF_HEIGHT, createFrisbeeMesh, disposeFrisbeeMesh, frisbeeColor, frisbeeGlow, frisbeeOrientation, TEE_BALL_SCALE } from '../frisbee'
-import { createClubParts } from '../golfClub'
+import { createBoxInstances, disposeBlocks } from '../blocks'
+import { BALL_HALF_HEIGHT, createFrisbeeMesh, disposeFrisbeeMesh, frisbeeGlow, frisbeeOrientation, TEE_BALL_SCALE } from '../frisbee'
+import { createClubSet, disposeClubMesh } from '../golfClub'
 import { createGlowInstances, disposeGlow } from '../glow'
 import { sharedMaterials, STYLE } from '../materials'
 import { CATCH_TIME, FULL_RELEASE_AT, FULL_SWING_TIME, RELEASE_AT, RELEASE_DELAY, THROW_TIME } from '../playerPose'
@@ -135,7 +136,6 @@ export function RemotePlayers() {
   const ghostRef = useRef(null)
   const ghostGlowRef = useRef(null)
   const clubsRef = useRef(null)
-  const headsRef = useRef(null)
 
   const assets = useMemo(() => {
     // Smooth toy boxes: the shared toy material, so no extra shader program.
@@ -143,24 +143,18 @@ export function RemotePlayers() {
     body.castShadow = true
     // Other players' throws: their own frisbees (same mesh and material as yours).
     const ghosts = createFrisbeeMesh(MAX_FRISBEES)
-    // Their clubs: the shaft and a head tinted in each one's club colour.
-    const parts = createClubParts()
-    const clubs = createToyInstances(parts.body, sharedMaterials().toy, MAX_REMOTES)
-    const heads = createToyInstances(parts.head, sharedMaterials().toy, MAX_REMOTES)
-    for (const m of [clubs, heads]) {
-      m.count = 0
-      m.frustumCulled = false
-    }
-    return { body, ghosts, ghostGlows: createGlowInstances(MAX_FRISBEES, 0.6), clubs, heads }
+    // Their clubs, each in its own shape and materials.
+    const set = createClubSet(MAX_REMOTES)
+    const clubs = new Group()
+    for (const m of set.list) clubs.add(m)
+    clubs.userData.set = set
+    return { body, ghosts, ghostGlows: createGlowInstances(MAX_FRISBEES, 0.6), clubs }
   }, [])
 
   useEffect(
     () => () => {
       disposeBlocks(assets.body)
-      for (const m of [assets.clubs, assets.heads]) {
-        m.geometry.dispose()
-        m.dispose()
-      }
+      for (const m of assets.clubs.children) disposeClubMesh(m)
       disposeFrisbeeMesh(assets.ghosts)
       disposeGlow(assets.ghostGlows)
       hideNameplatesFrom(0)
@@ -173,8 +167,9 @@ export function RemotePlayers() {
     const ghosts = ghostRef.current
     const ghostGlows = ghostGlowRef.current
     const clubs = clubsRef.current
-    const heads = headsRef.current
-    if (!body || !ghosts || !ghostGlows || !clubs || !heads) return
+    if (!body || !ghosts || !ghostGlows || !clubs) return
+    const clubSet = clubs.userData.set
+    for (const m of clubSet.list) m.count = 0
     const delta = Math.min(rawDelta, 0.05)
     const settings = getQuality()
     const now = performance.now()
@@ -182,7 +177,6 @@ export function RemotePlayers() {
     const t = state.clock.elapsedTime
 
     let instance = 0
-    let club = 0
     let plate = 0
     runtime.remotePets.length = 0
 
@@ -258,12 +252,12 @@ export function RemotePlayers() {
           _m.copy(_base).multiply(_local).multiply(_rot).multiply(_scale)
           body.setMatrixAt(instance, _m)
           // The club, in the right hand.
-          if (part.key === 'armR' && club < MAX_REMOTES) {
+          if (part.key === 'armR') {
+            const mesh = clubSet.meshFor(r.planeId)
             _clubAt.copy(_base).multiply(_local).multiply(_rot).multiply(CLUB_IN_HAND)
-            clubs.setMatrixAt(club, _clubAt)
-            heads.setMatrixAt(club, _clubAt)
-            heads.setColorAt(club, frisbeeColor(r.planeId))
-            club += 1
+            mesh.setMatrixAt(mesh.count, _clubAt)
+            mesh.setClub(mesh.count, r.planeId)
+            mesh.count += 1
           }
           // Classic look: shirt on the torso, trousers on the legs, bare arms and head.
           body.setColorAt(instance, part.key === 'torso' ? shirt : part.key.startsWith('leg') ? pants : skin)
@@ -311,12 +305,10 @@ export function RemotePlayers() {
     body.count = instance
     body.instanceMatrix.needsUpdate = true
     if (body.instanceColor) body.instanceColor.needsUpdate = true
-    for (const m of [clubs, heads]) {
-      m.count = club
-      m.visible = club > 0
-      m.instanceMatrix.needsUpdate = true
+    for (const m of clubSet.list) {
+      m.visible = m.count > 0
+      if (m.visible) m.instanceMatrix.needsUpdate = true
     }
-    if (club > 0 && heads.instanceColor) heads.instanceColor.needsUpdate = true
 
     // --- Ghost frisbees -------------------------------------------------------------
     let g = 0
@@ -396,7 +388,6 @@ export function RemotePlayers() {
     <>
       <primitive ref={bodyRef} object={assets.body} />
       <primitive ref={clubsRef} object={assets.clubs} />
-      <primitive ref={headsRef} object={assets.heads} />
       <primitive ref={ghostRef} object={assets.ghosts} />
       <primitive ref={ghostGlowRef} object={assets.ghostGlows} />
     </>
