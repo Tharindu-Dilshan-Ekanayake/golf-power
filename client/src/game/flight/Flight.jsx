@@ -5,6 +5,7 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CircleGeometry,
   Color,
   CylinderGeometry,
   InstancedMesh,
@@ -17,7 +18,8 @@ import {
   Vector3,
 } from 'three'
 
-import { TROPHY_FIRST, TROPHY_SPACING, ZONES } from '@shared/balance'
+import { GREEN_RINGS, HOLES, TROPHY_FIRST, TROPHY_SPACING, ZONES } from '@shared/balance'
+import { ballStyleId } from '@shared/logic'
 import { formatNumber } from '@shared/format'
 import { trophyValue, winsMultiplier, zoneIndexAt } from '@shared/logic'
 import { mulberry32 } from '@shared/rng'
@@ -27,18 +29,20 @@ import { sfx } from '../../audio/sfx'
 import { getGame } from '../../store/game'
 import { getQuality, useQuality } from '../../store/quality'
 import { iconUrl } from '../../ui/icons'
-import { BlockSet, createToyInstances, disposeBlocks, PropBuilder } from '../blocks'
+import { BlockSet, createBoxInstances, createToyInstances, disposeBlocks, PropBuilder } from '../blocks'
+import { burst } from '../fx/fxQueue'
 import { spawnPopup } from '../fx/popups'
-import { createFrisbeeModel, frisbeeOrientation } from '../frisbee'
+import { BALL_HALF_HEIGHT, FLIGHT_BALL_SCALE, TEE_BALL_SCALE, createFrisbeeModel, frisbeeOrientation } from '../frisbee'
+import { createGlowInstances, createGroundGlow, disposeGlow } from '../glow'
 import { LabelBatch } from '../labels/LabelBatch'
 import { sharedMaterials, STYLE } from '../materials'
-import { RELEASE_DELAY } from '../playerPose'
+import { FULL_RELEASE_DELAY as RELEASE_DELAY } from '../playerPose'
 import { runtime } from '../runtime'
-import { FOG, SKY } from '../sceneStyle'
+import { COURSE_DROP, FOG, SKY } from '../sceneStyle'
 import { skyUniforms } from '../skyState'
-import { flight } from './flightControl'
+import { flight, followBall, landFlight, strikeFlight } from './flightControl'
 import { writeDistance } from './hudLink'
-import { buildChunk, CHUNK, GATES, ZONE_THEMES, zAt } from './track'
+import { buildChunk, CHUNK, GATE_TOP, GATES, LAND_WIDTH, ZONE_THEMES, zAt } from './track'
 
 /**
  * Above this speed (m/s) the flight goes to "warp": no new scenery is built, a plain
@@ -75,7 +79,8 @@ const BUILD_INTERVAL_MS = 30
 /** Chunks never thrown away: the stretch visible from the lobby. */
 const PINNED_CHUNKS = 3
 const CACHE_LIMIT = 14
-const CRUISE_HEIGHT = 5.5
+/** World height of the course's ground: far below the lobby. */
+const COURSE_Y = -COURSE_DROP
 const MAX_TROPHIES = 16
 const STREAKS = 36
 
@@ -84,7 +89,12 @@ const _q = new Quaternion()
 const _p = new Vector3()
 const _s = new Vector3()
 const _v = new Vector3()
-const _look = new Vector3()
+const _want = new Vector3()
+const _tA = new Vector3()
+const _tB = new Vector3()
+const _tC = new Vector3()
+const _zAxis = new Vector3(0, 0, 1)
+const _wantLook = new Vector3()
 const _prevPlane = new Vector3()
 /** Stable vector for runtime.flightFocus (the scratch ones are reused mid-frame). */
 const planeFocus = new Vector3()
@@ -94,6 +104,12 @@ const _skyHorizon = new Color()
 /** At most one trophy popup this often; the trophies in between are summed into it. */
 const TROPHY_POPUP_MS = 180
 const TROPHY_ICON = iconUrl('trophy')
+
+/** Frees a built chunk and its netting child. */
+function disposeChunk(mesh) {
+  for (const child of mesh.children) disposeBlocks(child)
+  disposeBlocks(mesh)
+}
 
 /** Built chunks by index. Module-level: one track exists at a time. */
 const chunkCache = new Map()
@@ -110,7 +126,13 @@ const ZONE_SKIES = ZONES.map((z) => ZONE_THEMES[z.id].sky.map((c) => new Color(c
 const DEFAULT_TOP = new Color(SKY.top)
 const DEFAULT_HORIZON = new Color(SKY.horizon)
 
-const ease = (t) => 1 - Math.pow(1 - t, 2.4)
+/** Slow motion at the strike: how slow, for how long, and how long time takes to catch up. */
+const SLOWMO = 0.14
+const SLOWMO_MS = 340
+const SLOWMO_EASE_MS = 300
+/** How fast the camera circles the ball once it has come to rest, radians a second. */
+const ORBIT_SPEED = 0.45
+
 const smoothstep = (a, b, x) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)))
   return t * t * (3 - 2 * t)
@@ -127,6 +149,43 @@ function createTrophyGeometry() {
   return p.build()
 }
 
+/** Each green ring's colour, innermost (the hole) first; radii come from GREEN_RINGS. */
+const RING_COLORS = ['#05030a', '#ffd21f', '#ff9a1f', '#e0261c', '#2057c4', '#2f9a24']
+
+/**
+ * The bullseye green that ends each biome: rings sized from GREEN_RINGS (the same radii
+ * the rules pay out on) with thin white lines between, round a black hole with a small
+ * flag in it, edged with a low purple rim set into the ground. One merged prop, one
+ * instance per hole.
+ */
+function createGreenGeometry() {
+  const p = new PropBuilder()
+  const outer = GREEN_RINGS[GREEN_RINGS.length - 1].radius
+  for (let i = 0; i < 32; i += 1) {
+    const a = (i / 32) * Math.PI * 2
+    p.box(Math.cos(a) * (outer + 0.7), 0.05, Math.sin(a) * (outer + 0.7), 1.3, 0.14, 3.6, i % 2 ? '#5a4ab0' : '#4a3a9a', STYLE.SMOOTH, [0, -a, 0])
+  }
+  // Flat discs, face up, each a step above the last: only their tops are ever seen, so
+  // no sides or undersides (that was most of the green's triangles).
+  const disc = new CircleGeometry(1, 40)
+  const flat = [-Math.PI / 2, 0, 0]
+  let layer = 0
+  for (let i = GREEN_RINGS.length - 1; i >= 0; i -= 1) {
+    const r = GREEN_RINGS[i].radius
+    p.add(disc, { position: [0, 0.07 + layer * 0.02, 0], rotation: flat, scale: [r + 0.25, r + 0.25, 1], color: '#ece8f4', style: STYLE.SMOOTH })
+    layer += 1
+    p.add(disc, { position: [0, 0.07 + layer * 0.02, 0], rotation: flat, scale: [r, r, 1], color: RING_COLORS[i], style: i === RING_COLORS.length - 1 ? STYLE.CHECKER : STYLE.SMOOTH })
+    layer += 1
+  }
+  // The flag: a slim pole and a small red pennant.
+  p.box(0, 1.8, 0, 0.1, 3.6, 0.1, '#f4efe9', STYLE.SMOOTH)
+  p.box(0.55, 3.25, 0, 1.0, 0.6, 0.06, '#e0261c', STYLE.SMOOTH)
+  return p.build()
+}
+
+/** Segments in the shot tracer behind the ball. */
+const TRACER = 56
+
 let warpZone = -1
 
 /** Moves the warp floor under the plane and restyles it when the zone changes. */
@@ -136,7 +195,7 @@ function updateWarpFloor(floor, meter) {
   const centerZ = zAt(meter + WARP_LENGTH * 0.35)
   const parts = [
     // [width, height, top, colour, style]
-    [theme.ground ? 340 : 0, 1, -0.06, theme.ground, STYLE.STUDS],
+    [theme.ground ? LAND_WIDTH : 0, 1, -0.06, theme.ground, STYLE.STUDS],
     [theme.roadHalf * 2, 0.25, 0.0, theme.road, theme.roadStyle],
     [theme.kerbHalf - theme.roadHalf, 0.3, 0.08, theme.kerb, theme.kerbStyle],
     [theme.kerbHalf - theme.roadHalf, 0.3, 0.08, theme.kerb, theme.kerbStyle],
@@ -161,22 +220,63 @@ function updateWarpFloor(floor, meter) {
   floor.frustumCulled = false
 }
 
-/** Where the plane is at normalised time `t` (0-1) of the current flight. */
-function planePosition(t, start, out) {
-  const end = zAt(flight.distance)
-  const s = ease(t)
-  const z = start.z + (end - start.z) * s
-  const travelled = start.z - z
-  const rise = 1 - Math.exp(-travelled / 9)
-  const landing = smoothstep(0.86, 1, t)
-  const cruise = start.y + (CRUISE_HEIGHT - start.y) * rise + Math.sin(t * 9) * 0.3 * (1 - landing)
-  const y = cruise + (0.35 - cruise) * landing
-  const x = start.x * (1 - smoothstep(0, 0.25, t)) + Math.sin(travelled * 0.015) * 1.4 * (1 - landing)
-  return out.set(x, y, z)
+/** Share of the flight's time spent on the first, big arc, and of the distance it covers. */
+const CARRY_TIME = 0.74
+const CARRY_SHARE = 0.86
+/** Highest the ball goes, for the biggest hits. */
+const MAX_APEX = 42
+
+/**
+ * Height of the carry over the course, `d` metres into a carry of `carry` metres that
+ * tops out at `apex`: it climbs at about 45 degrees (rising its own height in about as
+ * many metres, easing over the top), sails along at the top on a long hit, and drops
+ * back down at about 45 degrees.
+ */
+function carryHeight(d, carry, apex) {
+  const ramp = Math.min(carry / 2, apex * 1.6)
+  if (d < ramp) return apex * Math.sin((d / ramp) * (Math.PI / 2))
+  if (d > carry - ramp) return apex * Math.sin(((carry - d) / ramp) * (Math.PI / 2))
+  return apex
 }
 
 /**
- * Lazily loaded: the track, the flying frisbee and its chase camera. While nobody is
+ * Where the ball is at normalised time `t` (0-1) of the current flight. A golf shot:
+ * it leaves the club at about 45 degrees and climbs, sails along high, drops back at
+ * about 45 degrees, lands, takes two short hops that die away and rolls to a stop at
+ * the final distance. It is quickest in the middle of the carry and slower round the
+ * launch and the landing, so both read clearly on screen.
+ */
+function planePosition(t, start, out) {
+  const distance = flight.distance
+  const ground = COURSE_Y + BALL_HALF_HEIGHT * FLIGHT_BALL_SCALE + 0.01
+  const carry = distance * CARRY_SHARE
+  const apex = Math.min(MAX_APEX, Math.max(5, carry * 0.32))
+  let metres
+  let y
+  if (t <= CARRY_TIME) {
+    const u = t / CARRY_TIME
+    metres = carry * (0.4 * u + 0.6 * (u - Math.sin(2 * Math.PI * u) / (2 * Math.PI)))
+    // From the tee's height down to the course's, under the arc.
+    y = start.y + (ground - start.y) * smoothstep(0, carry, metres) + carryHeight(metres, carry, apex)
+  } else {
+    const v = (t - CARRY_TIME) / (1 - CARRY_TIME)
+    // Slowing to a stop over what's left.
+    metres = carry + (distance - carry) * (1 - (1 - v) * (1 - v))
+    // Two hops, each a third the height of the last, then rolling on the grass.
+    const hop = Math.min(1, v / 0.6) * 2
+    const i = Math.min(1, Math.floor(hop))
+    const w = hop - i
+    const height = Math.min(5, apex * 0.14) / (i === 0 ? 1 : 3)
+    y = ground + (v < 0.6 ? 4 * height * w * (1 - w) : 0)
+    // In the hole: it rolls up to it and drops in.
+    if (flight.green?.ring === 0) y -= smoothstep(0.9, 1, v) * 0.9
+  }
+  const x = start.x * (1 - smoothstep(0, 0.3, t))
+  return out.set(x, y, start.z - metres)
+}
+
+/**
+ * Lazily loaded: the course, the flying ball and its chase camera. While nobody is
  * flying it still streams the first stretch of track, which is the street you see
  * leading out of the lobby.
  */
@@ -188,10 +288,23 @@ export default function Flight() {
   const groupRef = useRef(null)
   const warpRef = useRef(null)
   const planeRef = useRef(null)
+  const tracerRef = useRef(null)
+  const underRef = useRef(null)
+  const launched = useRef(false)
+  const landQueued = useRef(false)
+  const touched = useRef(false)
+  const flashRef = useRef(null)
+  const flashAt = useRef(-1e9)
+  const flashPos = useRef(new Vector3())
   const trophyRef = useRef(null)
   const streakRef = useRef(null)
   const starsRef = useRef(null)
   const flightStart = useRef(new Vector3())
+  /** The chase camera's glide in from the golfer's shoulder: for which flight, from where, since when. */
+  const camFor = useRef(0)
+  const camFrom = useRef(new Vector3())
+  const camAt = useRef(0)
+  const lookAt = useRef(new Vector3())
   const startedFor = useRef(0)
   /** Trophies popped so far this flight: index of the next, Wins not yet shown. */
   const trophyTally = useRef({ next: 0, pending: 0, shownAt: 0 })
@@ -203,9 +316,24 @@ export default function Flight() {
   const assets = useMemo(() => {
     const trophies = createToyInstances(createTrophyGeometry(), sharedMaterials().toy, MAX_TROPHIES)
 
-    const planeModel = createFrisbeeModel({ glowSize: 1.9 })
-    planeModel.scale.setScalar(2)
+    // The greens: one at the end of every zone but the last, ahead of the next gate.
+    const greens = createToyInstances(createGreenGeometry(), sharedMaterials().toy, HOLES.length)
+    HOLES.forEach((hole, i) => greens.setMatrixAt(i, _m.compose(_p.set(0, 0, zAt(hole)), _q.identity(), _s.setScalar(1))))
+    greens.count = HOLES.length
+    greens.instanceMatrix.needsUpdate = true
+
+    // A faint halo only: a strong additive one washes the pumpkin out to pale yellow.
+    const planeModel = createFrisbeeModel({ glowSize: 1.4, glowIntensity: 0.06 })
+    planeModel.scale.setScalar(FLIGHT_BALL_SCALE)
     planeModel.visible = false
+    // The shot tracer, as on golf broadcasts: a glowing line along the path the ball has
+    // flown, from the tee to the ball, orange warming to gold at the ball.
+    const tracer = createBoxInstances(TRACER, sharedMaterials().toy, STYLE.GLOW)
+    const hot = new Color('#ffe14a')
+    const cool = new Color('#ff5a14')
+    const tint = new Color()
+    for (let i = 0; i < TRACER; i += 1) tracer.setColorAt(i, tint.copy(cool).lerp(hot, i / (TRACER - 1)))
+    tracer.instanceColor.needsUpdate = true
 
     const streakMaterial = new MeshBasicMaterial({
       color: '#ffffff',
@@ -239,7 +367,18 @@ export default function Flight() {
     warpFloor.visible = false
     warpFloor.matrixAutoUpdate = false
 
-    return { trophies, planeModel, streakMesh, streakMaterial, stars, warpFloor }
+    // The flash at the moment of impact: a big soft star that swells and fades.
+    const flash = createGlowInstances(1, 2.2)
+    flash.setMatrixAt(0, new Matrix4())
+    flash.setColorAt(0, new Color('#ffd27a'))
+    flash.count = 1
+    flash.visible = false
+
+    // The light pool under the ball.
+    const under = createGroundGlow([{ x: 0, y: -0.06, z: 0, color: '#ffe14a', radius: 1.7, strength: 0.95 }])
+    under.visible = false
+
+    return { trophies, greens, flash, under, planeModel, tracer, streakMesh, streakMaterial, stars, warpFloor }
   }, [])
 
   // This module loads after the lobby is on screen; compile its shaders in the
@@ -265,7 +404,14 @@ export default function Flight() {
   useEffect(() => {
     const batch = new LabelBatch({ pageSize: Math.min(512, getQuality().maxTexture) })
     for (const g of GATES) {
-      batch.add(`gate-${g.zone.id}`, [0, 16.4, zAt(g.meter)], { lines: [{ text: g.zone.name, size: 64, fill: '#ffffff' }], pxPerUnit: 26 }, { fade: 400 })
+      // The zone's name, and how much better its Wins pay than the first zone's.
+      const bonus = Math.round((g.zone.winsPerMeter / ZONES[0].winsPerMeter - 1) * 100)
+      // As in the reference: the name in the zone's colour, and the bonus in a medal.
+      const color = ZONE_THEMES[g.zone.id].gate
+      const lines = [{ text: g.zone.name.toUpperCase(), size: 66, gradient: ['#ffffff', '#ffffff', color] }]
+      if (bonus > 0) lines.push({ text: `+${bonus}%`, size: 60, icon: 'trophy', badge: color })
+      // Only the next gate or so: further ones would show through this one's arch.
+      batch.add(`gate-${g.zone.id}`, [0, GATE_TOP + (bonus > 0 ? 8.5 : 4), zAt(g.meter)], { lines, pxPerUnit: 18 }, { fade: 200 })
     }
     let cancelled = false
     batch.build().then((meshes) => {
@@ -283,7 +429,10 @@ export default function Flight() {
     const group = groupRef.current
     let pass = 0
     const build = (i, density) => {
-      const mesh = buildChunk(i, { density }).build(sharedMaterials().blocks)
+      const set = buildChunk(i, { density })
+      const mesh = set.build(sharedMaterials().blocks)
+      // The see-through netting rides along as a child, in its own material.
+      if (set.nets.count > 0) mesh.add(set.nets.build(sharedMaterials().net))
       mesh.receiveShadow = trackWindow.shadows
       chunkCache.set(i, mesh)
       group.add(mesh)
@@ -314,18 +463,23 @@ export default function Flight() {
         const wanted = (i >= want.first && i <= want.last) || (i >= want.prefetchFirst && i <= want.prefetchLast)
         if (!wanted && i >= PINNED_CHUNKS) {
           group.remove(mesh)
-          disposeBlocks(mesh)
+          disposeChunk(mesh)
           chunkCache.delete(i)
         }
       }
     }, BUILD_INTERVAL_MS)
     return () => {
       clearInterval(id)
-      for (const mesh of chunkCache.values()) disposeBlocks(mesh)
+      for (const mesh of chunkCache.values()) disposeChunk(mesh)
       chunkCache.clear()
+      disposeGlow(assets.flash)
+      disposeGlow(assets.under)
+      assets.greens.geometry.dispose()
+      assets.greens.dispose()
       assets.trophies.geometry.dispose()
       assets.trophies.dispose()
       assets.planeModel.dispose()
+      disposeBlocks(assets.tracer)
       assets.streakMesh.geometry.dispose()
       assets.streakMaterial.dispose()
       assets.streakMesh.dispose()
@@ -355,8 +509,10 @@ export default function Flight() {
         trophyTally.current = { next: 0, pending: 0, shownAt: 0 }
         _prevPlane.copy(flightStart.current)
       }
+      // The shot's own clock: frame time scaled by the slow motion.
+      flight.clock += delta * runtime.timeScale
       // Rides in the hand through the wind-up and leaves it at the release.
-      const elapsed = (now - flight.startedAt) / 1000
+      const elapsed = flight.clock
       if (elapsed < RELEASE_DELAY) flightStart.current.copy(runtime.player.frisbeeAt)
       const t = Math.min(1, Math.max(0, elapsed - RELEASE_DELAY) / flight.duration)
       planePosition(t, flightStart.current, _p)
@@ -377,9 +533,87 @@ export default function Flight() {
           sfx.windStop()
         }
         plane.position.copy(_p)
-        frisbeeOrientation(plane.quaternion, now * 0.022, 0.12 + climb, Math.sin(now * 0.0025) * 0.22 * (1 - t))
-        plane.setFrisbee(getGame().profile.equippedPlane)
-        plane.setGlowSize(1.9 * settings.frisbeeGlow)
+        // Off the tee at its own size, growing to its flight size in the first few metres
+        // (so the camera, pulling away, still reads it).
+        plane.scale.setScalar(TEE_BALL_SCALE + (FLIGHT_BALL_SCALE - TEE_BALL_SCALE) * smoothstep(0, 0.05, t))
+        frisbeeOrientation(plane.quaternion, now * 0.05, 0.12 + climb, Math.sin(now * 0.0025) * 0.22 * (1 - t))
+        plane.setFrisbee(ballStyleId(getGame().profile))
+        plane.setGlowSize(1.5 * settings.frisbeeGlow)
+      }
+      // The strike: the crack, a burst of embers and a flash off the club, and time
+      // drops into slow motion while the camera is still on the golfer.
+      if (elapsed >= RELEASE_DELAY && t < 1) {
+        if (!launched.current) {
+          launched.current = true
+          strikeFlight(now)
+          burst({ x: _p.x, y: _p.y + 0.2, z: _p.z, count: 44, palette: 'ember', speed: 11 })
+          flashAt.current = now
+          flashPos.current.copy(_p)
+        }
+        // Touchdown at the end of the carry: a thump, a puff of embers and a flash of light
+        // on the grass, then the hops.
+        if (!touched.current && t > CARRY_TIME) {
+          touched.current = true
+          burst({ x: _p.x, y: COURSE_Y + 0.4, z: _p.z - 1.5, count: 16, palette: 'ember', speed: 3.5 })
+          sfx.jumpLand()
+          runtime.fx.punch = Math.max(runtime.fx.punch, 0.4)
+          flashAt.current = now
+          flashPos.current.set(_p.x, COURSE_Y + 0.6, _p.z)
+        }
+      } else if (elapsed < RELEASE_DELAY) {
+        launched.current = false
+        touched.current = false
+      }
+      // Time: slow motion just after the strike, easing back up to speed as the camera
+      // whips away after the ball; slow again as a hole in one rolls into the cup.
+      if (flight.struck && !flight.landed) {
+        const since = now - flight.impactAt
+        let scale = since < SLOWMO_MS ? SLOWMO : SLOWMO + (1 - SLOWMO) * smoothstep(SLOWMO_MS, SLOWMO_MS + SLOWMO_EASE_MS, since)
+        if (flight.green?.ring === 0) scale = Math.min(scale, 1 - 0.7 * smoothstep(0.93, 0.97, t))
+        runtime.timeScale = scale
+        if (since >= SLOWMO_MS * 0.85 && runtime.camera.mode !== 'flight') followBall()
+      }
+      // At rest: land it (outside the frame loop, since it updates the HUD's store).
+      if (t >= 1 && !flight.landed && !landQueued.current) {
+        landQueued.current = true
+        setTimeout(landFlight, 0)
+      } else if (t < 1) {
+        landQueued.current = false
+      }
+      // The pool of light under the ball, on the ground beneath it.
+      const disc = underRef.current
+      if (disc) {
+        disc.visible = elapsed >= RELEASE_DELAY
+        disc.position.set(_p.x, COURSE_Y + 0.02, _p.z)
+        disc.scale.setScalar(1 - Math.min(0.6, Math.max(0, _p.y - COURSE_Y - 0.4) * 0.12))
+      }
+      // The tracer: segments along the path flown so far, re-sampled from the same curve
+      // the ball follows, so it is exact and needs no history.
+      const tracer = tracerRef.current
+      if (tracer) {
+        const flying = elapsed >= RELEASE_DELAY && t > 0.001
+        // Only the flight through the air; the roll along the grass leaves no line.
+        const tracerFade = 1 - smoothstep(CARRY_TIME, CARRY_TIME + 0.12, t)
+        tracer.count = flying && tracerFade > 0.01 ? TRACER : 0
+        if (tracer.count) {
+          const drawTo = Math.min(t, CARRY_TIME)
+          planePosition(0, flightStart.current, _tA)
+          for (let i = 0; i < TRACER; i += 1) {
+            planePosition((drawTo * (i + 1)) / TRACER, flightStart.current, _tB)
+            _v.subVectors(_tB, _tA)
+            const len = _v.length()
+            // Thin, swelling a little towards the ball, then tapering off just behind it
+            // (so it never reads as a bar poking at the camera), and fading away once the
+            // ball is down.
+            const k = (i + 1) / TRACER
+            // It tapers in from nothing at the tee too, where it passes close to the camera.
+            const thick = (0.035 + 0.07 * k) * (1 - smoothstep(0.88, 1, k) * 0.85) * smoothstep(0, 0.2, k) * tracerFade
+            _q.setFromUnitVectors(_zAxis, len > 1e-4 ? _v.multiplyScalar(1 / len) : _zAxis)
+            tracer.setMatrixAt(i, _m.compose(_tC.addVectors(_tA, _tB).multiplyScalar(0.5), _q, _s.set(thick, thick, len + thick)))
+            _tA.copy(_tB)
+          }
+          tracer.instanceMatrix.needsUpdate = true
+        }
       }
       runtime.flightFocus = planeFocus.copy(_p)
       writeDistance(flight.meter)
@@ -387,26 +621,95 @@ export default function Flight() {
       // Chase camera: behind and above, looking down the track. Locked to the plane
       // along the track (at warp speed any lag leaves it hundreds of metres behind);
       // eased sideways and vertically so the bobbing stays smooth.
-      if (runtime.camera.mode === 'flight') {
-        const k = 1 - Math.exp(-6 * delta)
-        camera.position.set(
-          camera.position.x + (_p.x * 0.6 - camera.position.x) * k,
-          camera.position.y + (_p.y + 2.3 - camera.position.y) * k,
-          _p.z + 7.5,
-        )
-        _look.set(_p.x * 0.8, _p.y + 0.3, _p.z - 12)
-        camera.lookAt(_look)
+      if (runtime.camera.mode === 'flight' && flight.landed) {
+        // At rest: circle slowly round the ball while the result shows, closing in.
+        const k = 1 - Math.exp(-2.5 * delta)
+        const a = ((now - flight.landedAt) / 1000) * ORBIT_SPEED
+        const r = 9 - Math.min(2.5, ((now - flight.landedAt) / 1000) * 1.2)
+        _want.set(_p.x + Math.sin(a) * r, _p.y + 3.2, _p.z + Math.cos(a) * r)
+        camera.position.lerp(_want, k)
+        lookAt.current.lerp(_wantLook.set(_p.x, _p.y + 0.6, _p.z), k * 1.5)
+        camera.lookAt(lookAt.current)
+      } else if (runtime.camera.mode === 'flight') {
+        const k = 1 - Math.exp(-5 * delta)
+        // A golf broadcast's follow camera: behind the ball and below it while it climbs,
+        // looking out level towards the horizon, so the ball soars up the sky with the
+        // course spread out beneath it, then drops back to the fairway. It falls back as
+        // the ball climbs, to keep the whole arc in the picture.
+        const aloft = Math.max(0, _p.y - COURSE_Y)
+        _want.set(_p.x * 0.6, COURSE_Y + 3.5 + aloft * 0.75, _p.z + 9 + aloft * 0.35)
+        // Over the lobby (before the cliff) it stays clear of the plaza's floor.
+        if (_want.z > THROW_LINE_Z - 3) _want.y = Math.max(_want.y, 2.5)
+        _wantLook.set(_p.x * 0.8, COURSE_Y + 1.2 + aloft * 0.86, _p.z - 12)
+        // At the strike the camera is still over the golfer's shoulder: glide from there
+        // to the chase over the first moment of the flight, then lock on (at warp speed
+        // any lag would leave it hundreds of metres behind).
+        if (camFor.current !== flight.startedAt) {
+          camFor.current = flight.startedAt
+          camFrom.current.copy(camera.position)
+          camera.getWorldDirection(_v)
+          lookAt.current.copy(camera.position).addScaledVector(_v, 10)
+          camAt.current = now
+        }
+        // A skip jumps the ball to its rest: cut the camera there too (the screen is dark).
+        if (flight.cut) {
+          flight.cut = false
+          camAt.current = now - 1e6
+          camera.position.copy(_want)
+          lookAt.current.copy(_wantLook)
+        }
+        const glide = Math.min(1, (now - camAt.current) / 900)
+        const g = glide * glide * (3 - 2 * glide)
+        if (glide < 1) {
+          camera.position.lerpVectors(camFrom.current, _want, g)
+          lookAt.current.lerp(_wantLook, Math.max(k, g))
+        } else {
+          camera.position.set(
+            camera.position.x + (_want.x - camera.position.x) * k,
+            camera.position.y + (_want.y - camera.position.y) * Math.min(1, k * 0.8),
+            _want.z,
+          )
+          lookAt.current.set(
+            lookAt.current.x + (_wantLook.x - lookAt.current.x) * k,
+            lookAt.current.y + (_wantLook.y - lookAt.current.y) * Math.min(1, k * 2),
+            _wantLook.z,
+          )
+        }
+        camera.lookAt(lookAt.current)
+        // A touch wider the faster it goes, for a sense of speed.
+        const wantFov = 60 + Math.min(10, speed * 0.02)
+        if (Math.abs(state.camera.fov - wantFov) > 0.02) {
+          state.camera.fov += (wantFov - state.camera.fov) * k
+          state.camera.updateProjectionMatrix()
+        }
       }
     } else if (plane) {
+      runtime.timeScale = 1
       plane.visible = false
+      if (tracerRef.current) tracerRef.current.count = 0
+      if (underRef.current) underRef.current.visible = false
     }
     if (wasActive.current && !flight.active) {
+      state.camera.fov = 60
+      state.camera.updateProjectionMatrix()
       sfx.windStop()
       skyUniforms.topColor.value.copy(DEFAULT_TOP)
       skyUniforms.horizonColor.value.copy(DEFAULT_HORIZON)
       if (scene.fog) scene.fog.color.set(FOG.color)
     }
     wasActive.current = flight.active
+
+    // --- Impact flash -------------------------------------------------------------
+    const flash = flashRef.current
+    if (flash) {
+      const age = (now - flashAt.current) / 1000
+      flash.visible = age >= 0 && age < 0.4
+      if (flash.visible) {
+        flash.position.copy(flashPos.current)
+        flash.scale.setScalar((0.6 + age * 14) * 1.6)
+        flash.material.uniforms.uIntensity.value = 2.2 * (1 - age / 0.4)
+      }
+    }
 
     // --- Track chunks -------------------------------------------------------------
     // Only decide what should exist; the builder below does the allocating, outside
@@ -463,7 +766,7 @@ export default function Flight() {
       const k0 = Math.max(0, Math.ceil((focus - 10 - TROPHY_FIRST) / TROPHY_SPACING))
       for (let m = TROPHY_FIRST + k0 * TROPHY_SPACING; m < focus + ahead * 0.8 && count < MAX_TROPHIES; m += TROPHY_SPACING) {
         if (flight.active && m <= flight.meter) continue
-        const height = flight.active ? CRUISE_HEIGHT : 1.8
+        const height = 0.55
         _p.set(Math.sin(m * 0.5) * 2.5, height + Math.sin(spin + m) * 0.25, zAt(m))
         _q.setFromAxisAngle(_v.set(0, 1, 0), spin + m)
         _s.setScalar(1.5)
@@ -500,7 +803,7 @@ export default function Flight() {
     // --- Speed lines --------------------------------------------------------------
     const lines = streakRef.current
     if (lines) {
-      const active = flight.active && speedLines && speed > 25
+      const active = flight.active && speedLines && trackWindow.warp
       if (!active) {
         lines.count = 0
       } else {
@@ -523,11 +826,18 @@ export default function Flight() {
 
   return (
     <group ref={rootRef}>
-      <group ref={groupRef} />
-      <group ref={gatesRef} />
+      {/* The course itself, down at the foot of the lobby's cliff. */}
+      <group position={[0, COURSE_Y, 0]}>
+        <group ref={groupRef} />
+        <group ref={gatesRef} />
+        <primitive ref={warpRef} object={assets.warpFloor} />
+        <primitive ref={trophyRef} object={assets.trophies} />
+        <primitive object={assets.greens} />
+      </group>
       <primitive ref={planeRef} object={assets.planeModel} />
-      <primitive ref={warpRef} object={assets.warpFloor} />
-      <primitive ref={trophyRef} object={assets.trophies} />
+      <primitive ref={tracerRef} object={assets.tracer} />
+      <primitive ref={underRef} object={assets.under} />
+      <primitive ref={flashRef} object={assets.flash} />
       <primitive ref={streakRef} object={assets.streakMesh} />
       <primitive ref={starsRef} object={assets.stars} />
     </group>

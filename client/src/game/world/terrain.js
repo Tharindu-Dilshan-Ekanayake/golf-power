@@ -1,11 +1,13 @@
 import { hash2, mulberry32 } from '@shared/rng'
-import { PLAZA } from '@shared/world'
+import { PLAZA, THROW_LINE_Z } from '@shared/world'
 
 import { STYLE } from '../materials'
-import { PALETTE } from '../sceneStyle'
+import { COURSE_DROP, PALETTE } from '../sceneStyle'
+import { blackPalm, deadTree, pumpkin, tombstone } from './halloween'
 
 /**
- * Terraced voxel hills ringing the plaza, plus blocky trees on top.
+ * Terraced voxel hills ringing the plaza, plus black dead trees, palms, pumpkin patches
+ * and gravestones on top.
  *
  * Heights come from a smooth value-noise field quantised into terraces, sampled on a
  * coarse grid and greedy-merged into as few boxes as possible: a few hundred instances
@@ -13,10 +15,13 @@ import { PALETTE } from '../sceneStyle'
  */
 
 const CELL = 4
-const BOUNDS = { minX: -176, maxX: 156, minZ: -150, maxZ: 136 }
+// Ends at the throw line: past it the lobby is a cliff, and the course lies far below.
+const BOUNDS = { minX: -176, maxX: 156, minZ: THROW_LINE_Z, maxZ: 136 }
+/** How deep the cliffs go: down to below the sea. */
+const CLIFF_BASE = -(COURSE_DROP + 6)
 /** The throw track leaves the plaza northwards through this gap in the hills. */
 const CORRIDOR_HALF_WIDTH = 34
-const STEP = 2
+const STEP = 3
 
 function smooth(t) {
   return t * t * (3 - 2 * t)
@@ -50,10 +55,13 @@ export function terrainHeight(x, z) {
   if (distanceOutside(CORRIDOR, x, z) === 0) return 0
   const d = Math.min(distanceOutside(PLAZA, x, z), distanceOutside(CORRIDOR, x, z))
   // A low first terrace right at the plaza edge, rising in big steps further out.
-  const base = d < 6 ? 4 : 6 + Math.floor(d / 14) * 5
-  const n = valueNoise(x, z, 28, 11) * 7 + valueNoise(x, z, 9, 23) * 2.5
+  // A tall first wall right at the plaza's edge (the lobby is a walled courtyard, as
+  // in the reference), then terraces stepping up behind it.
+  const base = d < 6 ? 11 : 13 + Math.floor(d / 14) * 4
+  // Long, gentle swells only: the hills read as clean terraces, not noise.
+  const n = valueNoise(x, z, 44, 11) * 6 + valueNoise(x, z, 16, 23) * 1.2
   const h = Math.round((base + n) / STEP) * STEP
-  return Math.min(34, Math.max(4, h))
+  return Math.min(34, Math.max(9, h))
 }
 
 /**
@@ -66,20 +74,16 @@ export function terrainHeight(x, z) {
 const TREE_HALF_WIDTH = 2.4
 
 export function addTree(blocks, x, base, z, scale = 1, rand = Math.random) {
-  const s = scale
-  const trunk = 3 * s
-  blocks.addOn(x, base, z, 0.9 * s, trunk, 0.9 * s, PALETTE.trunk)
+  if (rand() < 0.35) blackPalm(blocks, x, base, z, scale, rand)
+  else deadTree(blocks, x, base, z, scale, rand)
+}
 
-  const greens = PALETTE.leaves
-  const green = greens[Math.floor(rand() * greens.length)]
-  const tiers = [4.8, 3.6, 2.4]
-  let y = base + trunk - 0.4 * s
-  for (const width of tiers) {
-    const w = width * s
-    blocks.addOn(x, y, z, w, 1.7 * s, w, green)
-    y += 1.5 * s
+/** Pumpkins on a terrace: pumpkinPatch only works at ground level, so stand them on `base`. */
+function pumpkinPatchOn(blocks, x, base, z, rand, s) {
+  const count = 2 + Math.floor(rand() * 2)
+  for (let i = 0; i < count; i += 1) {
+    pumpkin(blocks, x + (rand() - 0.5) * 3.2, base, z + (rand() - 0.5) * 3.2, s * (0.55 + rand() * 0.55), rand() * Math.PI * 2, rand() < 0.5)
   }
-  blocks.addOn(x, y, z, 1.1 * s, 1.1 * s, 1.1 * s, green)
 }
 
 /** Builds the hill ring into `blocks` and returns tree spots used (for tests/debug). */
@@ -103,8 +107,8 @@ export function buildTerrain(blocks, { treeDensity = 1 } = {}) {
     const depth = (run.j1 - run.j0 + 1) * CELL
     const x = BOUNDS.minX + run.i0 * CELL + width / 2
     const z = BOUNDS.minZ + run.j0 * CELL + depth / 2
-    // Sunk slightly so no seam shows where hills meet the ground plane.
-    blocks.addOn(x, -0.5, z, width, run.h + 0.5, depth, PALETTE.dirt, STYLE.TERRAIN)
+    // Sunk well below the sea, so the plateau's cliffs plunge into the water.
+    blocks.addOn(x, CLIFF_BASE, z, width, run.h - CLIFF_BASE, depth, PALETTE.dirt, STYLE.TERRAIN)
   }
 
   for (let j = 0; j < rows; j += 1) {
@@ -162,19 +166,16 @@ export function buildTerrain(blocks, { treeDensity = 1 } = {}) {
       const reach = TREE_HALF_WIDTH * scale
       if (placed.some((t) => Math.max(Math.abs(t.x - x), Math.abs(t.z - z)) < t.reach + reach)) continue
       placed.push({ x, z, reach })
-      addTree(blocks, x, h, z, scale, rand)
+      const roll = rand()
+      if (roll < 0.45) addTree(blocks, x, h, z, scale, rand)
+      else if (roll < 0.75) pumpkinPatchOn(blocks, x, h, z, rand, 1.1)
+      else if (roll < 0.9) tombstone(blocks, x, h, z, 1 + rand() * 0.4, rand() * Math.PI * 2)
       trees += 1
     }
   }
 
-  // A few trees inside the plaza edge, as in the reference shots.
-  const plazaTrees = [
-    [PLAZA.minX + 4, PLAZA.maxZ - 5],
-    [PLAZA.maxX - 4, PLAZA.maxZ - 5],
-    [-20, PLAZA.maxZ - 3],
-    [-4, PLAZA.maxZ - 3],
-  ]
-  for (const [x, z] of plazaTrees) addTree(blocks, x, 0, z, 1.1, rand)
+  // The cliff under the Hit Zone: the plateau's north face, dropping to the course.
+  blocks.addOn(0, CLIFF_BASE, THROW_LINE_Z - 0.75, 128, -CLIFF_BASE, 1.5, PALETTE.dirt, STYLE.TERRAIN)
 
   return { trees }
 }

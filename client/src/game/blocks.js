@@ -39,6 +39,104 @@ export function toColor(value) {
 
 const FIELDS = 13
 
+/** How far a coplanar face is lifted per layer, metres: invisible, but plenty for depth. */
+const COPLANAR_NUDGE = 0.005
+/** Faces closer than this are treated as being in the same plane. */
+const COPLANAR_TOLERANCE = 0.0015
+/** Overlaps narrower than this (boxes only touching) don't fight. */
+const MIN_OVERLAP = 0.002
+
+/**
+ * Faces in the same plane flicker ("z-fighting"): where two boxes' faces lie in one
+ * plane, face the same way and overlap, they fight over every pixel and the picture
+ * shimmers as the camera moves. Scene code keeps every layer a step proud of what it
+ * sits on, but across thousands of boxes some always line up.
+ *
+ * This finds every such pair among unrotated boxes and lifts the later box's face out
+ * by a few millimetres - later boxes are the details added onto earlier ones - stacking
+ * further if several share the spot, so every pixel has exactly one winner. Bottom faces
+ * are skipped (nothing is seen from underneath), which also keeps it quick: faces are
+ * bucketed by plane and swept, so it's about linear in the number of boxes.
+ *
+ * Returns how many faces it moved. Changes `data` in place.
+ */
+export function separateCoplanar(data, count) {
+  const box = (i) => i * FIELDS
+  // For each face direction (+x, -x, +z, -z, +y): plane key -> box indices.
+  const kinds = [
+    [0, 1],
+    [0, -1],
+    [2, 1],
+    [2, -1],
+    [1, 1],
+  ]
+  const buckets = kinds.map(() => new Map())
+  const plane = (o, axis, dir) => data[o + axis] + (dir * data[o + 3 + axis]) / 2
+  for (let i = 0; i < count; i += 1) {
+    const o = box(i)
+    if (data[o + 6] !== 0 || data[o + 7] !== 0 || data[o + 8] !== 0) continue
+    if (data[o + 3] <= 0 || data[o + 4] <= 0 || data[o + 5] <= 0) continue
+    kinds.forEach(([axis, dir], k) => {
+      const key = Math.round(plane(o, axis, dir) * 1000)
+      let list = buckets[k].get(key)
+      if (!list) buckets[k].set(key, (list = []))
+      list.push(i)
+    })
+  }
+
+  let moved = 0
+  kinds.forEach(([axis, dir], k) => {
+    const [u, v] = [0, 1, 2].filter((a) => a !== axis)
+    const lo = (o, a) => data[o + a] - data[o + 3 + a] / 2
+    const hi = (o, a) => data[o + a] + data[o + 3 + a] / 2
+    const map = buckets[k]
+    // late box -> the earlier boxes it fights with, over the whole direction.
+    const above = new Map()
+    for (const key of map.keys()) {
+      // A plane's boxes and the next key's (a face 0.5 mm the other side of a key
+      // boundary is still the same plane); each pair is recorded once.
+      const group = [...map.get(key), ...(map.get(key + 1) || [])]
+      if (group.length < 2) continue
+      // Sweep along u for boxes that overlap in u and v and really share the plane.
+      group.sort((a, b) => lo(box(a), u) - lo(box(b), u))
+      for (let x = 0; x < group.length; x += 1) {
+        const a = group[x]
+        const oa = box(a)
+        const ha = hi(oa, u)
+        for (let y = x + 1; y < group.length; y += 1) {
+          const b = group[y]
+          const ob = box(b)
+          if (lo(ob, u) > ha - MIN_OVERLAP) break
+          if (Math.min(ha, hi(ob, u)) - lo(ob, u) < MIN_OVERLAP) continue
+          if (Math.min(hi(oa, v), hi(ob, v)) - Math.max(lo(oa, v), lo(ob, v)) < MIN_OVERLAP) continue
+          if (Math.abs(plane(oa, axis, dir) - plane(ob, axis, dir)) > COPLANAR_TOLERANCE) continue
+          // Same colour and pattern can't be seen fighting; leave those alone.
+          if (data[oa + 9] === data[ob + 9] && data[oa + 10] === data[ob + 10] && data[oa + 11] === data[ob + 11] && data[oa + 12] === data[ob + 12]) continue
+          const [early, late] = a < b ? [a, b] : [b, a]
+          if (!above.has(late)) above.set(late, new Set())
+          above.get(late).add(early)
+        }
+      }
+    }
+    // Layer them in the order they were added: each sits one nudge above the highest of
+    // the earlier boxes it overlaps.
+    const level = new Map()
+    for (const late of [...above.keys()].sort((a, b) => a - b)) {
+      let l = 0
+      for (const early of above.get(late)) l = Math.max(l, level.get(early) || 0)
+      level.set(late, l + 1)
+    }
+    for (const [i, l] of level) {
+      const o = box(i)
+      const lift = l * COPLANAR_NUDGE
+      data[o + 3 + axis] += lift
+      data[o + axis] += (dir * lift) / 2
+      moved += 1
+    }
+  })
+  return moved
+}
+
 /**
  * A bag of axis-aligned (optionally Y-rotated) boxes.
  *
@@ -78,6 +176,7 @@ export class BlockSet {
    */
   build(material) {
     const count = this.count
+    this.separated = separateCoplanar(this.data, count)
     const geometry = new BufferGeometry()
     geometry.setIndex(UNIT_BOX.index)
     for (const name of ['position', 'normal', 'uv']) {

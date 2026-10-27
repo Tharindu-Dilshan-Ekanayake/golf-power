@@ -117,8 +117,9 @@ export function Pets() {
     // --- Your pets ----------------------------------------------------------------
     const { profile } = getGame()
     const player = runtime.player
-    const sin = Math.sin(player.yaw)
-    const cos = Math.cos(player.yaw)
+    // Behind where you're heading (not the body, which turns side-on over the ball).
+    const sin = Math.sin(player.heading)
+    const cos = Math.cos(player.heading)
     let slot = 0
     for (const uid of profile.equippedPets) {
       if (slot >= followers.length) break

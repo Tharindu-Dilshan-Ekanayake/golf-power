@@ -2,8 +2,8 @@ import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { Matrix4, Quaternion, Vector3 } from 'three'
 
-import { TUTORIAL } from '@shared/balance'
-import { EGG_STANDS, groundHeightAt, LANE_NEAR_X, laneCenterZ, PLANE_PADS, THROW_AREA } from '@shared/world'
+import { PLANES, TUTORIAL } from '@shared/balance'
+import { EGG_STANDS, groundHeightAt, LANE_DIR, LANE_NEAR_X, laneCenterZ, PLANE_PADS, THROW_AREA } from '@shared/world'
 
 import { getGame } from '../../store/game'
 import { createToyInstances, PropBuilder } from '../blocks'
@@ -18,7 +18,7 @@ const ARRIVED = 3.5
 /** Ground point each tutorial step leads to. */
 const TARGETS = {
   throw: { x: 0, z: (THROW_AREA.minZ + THROW_AREA.maxZ) / 2 },
-  lane0: { x: LANE_NEAR_X - 3, z: laneCenterZ(0) },
+  lane0: { x: LANE_NEAR_X + LANE_DIR * 3, z: laneCenterZ(0) },
   hangar: { x: PLANE_PADS[1].x, z: PLANE_PADS[1].z },
   eggs: { x: EGG_STANDS[0].x, z: EGG_STANDS[0].z - 3.5 },
 }
@@ -62,7 +62,12 @@ export function TutorialArrows() {
     if (!instanced) return
     const { profile, flight } = getGame()
     const step = TUTORIAL[profile.tutorialStep]
-    const target = step && TARGETS[step.target]
+    // The club step leads to the first club you don't own yet.
+    let target = step && TARGETS[step.target]
+    if (step?.target === 'hangar') {
+      const pad = PLANE_PADS.find((p) => !profile.ownedPlanes.includes(PLANES[p.index].id))
+      if (pad) target = { x: pad.x, z: pad.z }
+    }
     const player = runtime.player.position
     if (!target || flight || runtime.camera.mode !== 'follow') {
       instanced.count = 0

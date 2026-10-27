@@ -2,11 +2,14 @@ import {
   BADGES,
   DAILY_INTERVAL_MS,
   DAILY_REWARDS,
-  DISTANCE_BASE,
-  DISTANCE_K,
+  DISTANCE_CURVE,
+  DUEL_WIN_CANDY,
   EGGS,
   flightDuration,
   FREE_REWARD,
+  GREEN_RINGS,
+  HOLE_IN_ONE_CANDY,
+  HOLES,
   ITEMS,
   LANES,
   LEVEL_GAIN,
@@ -23,7 +26,12 @@ import {
   RARITIES,
   rebirthMultiplier,
   SHOP,
-  THROW_RECOVERY,
+  SHOT_SCATTER,
+  SKINS,
+  SWING_MIN,
+  SWING_OVER,
+  SWING_PERFECT,
+  HIT_COOLDOWN,
   TRAIN_INTERVAL,
   TROPHY_FIRST,
   TROPHY_METERS,
@@ -58,6 +66,10 @@ export function createProfile(id, name) {
     levelProgress: 0,
     equippedPlane: 'paper',
     ownedPlanes: ['paper'],
+    /** Candy Corn, and the pumpkin skins bought with it ('' equipped: the club's own look). */
+    candy: 0,
+    ownedSkins: [],
+    equippedSkin: '',
     pets: [],
     equippedPets: [],
     nextPetUid: 1,
@@ -92,10 +104,23 @@ export function normalizeProfile(raw, id, name) {
     : []
   p.ownedPlanes = Array.isArray(raw.ownedPlanes) && raw.ownedPlanes.length ? raw.ownedPlanes : ['paper']
   if (!p.ownedPlanes.includes(p.equippedPlane)) p.equippedPlane = p.ownedPlanes[0]
+  p.candy = Number.isFinite(p.candy) && p.candy > 0 ? Math.floor(p.candy) : 0
+  p.ownedSkins = Array.isArray(raw.ownedSkins) ? raw.ownedSkins.filter((id) => SKINS.some((s) => s.id === id)) : []
+  if (!p.ownedSkins.includes(p.equippedSkin)) p.equippedSkin = ''
   // The tutorial is for brand-new players only: anyone who has rebirthed is past it.
-  if (p.rebirths > 0) p.tutorialStep = TUTORIAL.length
+  settleTutorial(p)
   p.v = PROFILE_VERSION
   return p
+}
+
+/**
+ * Someone who has rebirthed is past the first three steps; what's left of the guide is
+ * buying a new club - unless they already own one.
+ */
+const BUY_STEP = TUTORIAL.findIndex((step) => step.event === 'buyPlane')
+function settleTutorial(p) {
+  if (p.rebirths <= 0) return
+  p.tutorialStep = p.ownedPlanes.length > 1 ? TUTORIAL.length : Math.max(p.tutorialStep, BUY_STEP)
 }
 
 export function createSession(now) {
@@ -103,6 +128,9 @@ export function createSession(now) {
 }
 
 // --- Lookups ------------------------------------------------------------------------
+
+/** The look of the ball this player hits: their skin if they wear one, else their club's. */
+export const ballStyleId = (profile) => (profile.equippedSkin ? `skin_${profile.equippedSkin}` : profile.equippedPlane)
 
 export const planeIndex = (id) => PLANES.findIndex((p) => p.id === id)
 export const planeById = (id) => PLANES.find((p) => p.id === id) || PLANES[0]
@@ -212,7 +240,7 @@ export function applyClick(profile, now) {
 export function applyRebirth(profile) {
   if (!isMaxLevel(profile)) return { ok: false, error: `Reach level ${levelCap(profile.rebirths)} first!` }
   profile.rebirths += 1
-  profile.tutorialStep = TUTORIAL.length
+  settleTutorial(profile)
   profile.power = 0
   profile.level = 1
   profile.levelProgress = 0
@@ -221,7 +249,22 @@ export function applyRebirth(profile) {
 
 // --- Throwing ----------------------------------------------------------------------
 
-export const throwDistance = (power) => DISTANCE_BASE + DISTANCE_K * Math.sqrt(Math.max(0, power))
+/** How far a hit flies, metres, for `power` (see DISTANCE_CURVE). */
+export function throwDistance(power) {
+  const x = Math.log10(1 + Math.max(0, power))
+  const pts = DISTANCE_CURVE
+  for (let i = 1; i < pts.length; i += 1) {
+    const x0 = Math.log10(1 + pts[i - 1][0])
+    const x1 = Math.log10(1 + pts[i][0])
+    if (x <= x1 || i === pts.length - 1) {
+      const k = (x - x0) / (x1 - x0)
+      // Smoothstep within a stretch would stall at the anchors; linear in log space
+      // keeps every bit of Power counting.
+      return pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k
+    }
+  }
+  return pts[0][1]
+}
 
 export function zoneIndexAt(meter) {
   for (let i = ZONES.length - 1; i >= 0; i -= 1) {
@@ -253,24 +296,77 @@ export function baseThrowWins(distance) {
 }
 
 /**
- * A throw. Power is not consumed. Returns everything the client needs to replay the
- * flight locally: distance, duration, trophy positions and the Wins earned.
+ * How hard a swing hits, from where the meter stood (0-1): full strength in the PERFECT
+ * band, weaker below it, a slight over-swing above. Anything that isn't a number counts
+ * as a perfect swing.
  */
-export function applyThrow(profile, now) {
-  const distance = Math.round(throwDistance(profile.power) * 10) / 10
+export function swingStrength(strike) {
+  if (typeof strike !== 'number' || !Number.isFinite(strike)) return 1
+  const s = Math.min(1, Math.max(0, strike))
+  if (s > SWING_PERFECT[1]) return SWING_OVER
+  if (s >= SWING_PERFECT[0]) return 1
+  return SWING_MIN + (1 - SWING_MIN) * (s / SWING_PERFECT[0]) ** 1.5
+}
+
+/**
+ * A duel shot: how far a swing at the meter's `strike` carries - the same as a real hit,
+ * Power and all - with no Wins: a duel is for bragging rights. Returns `{ distance,
+ * duration }`.
+ */
+export function duelShot(profile, strike, rand = Math.random) {
+  const scatter = 1 + (rand() * 2 - 1) * SHOT_SCATTER
+  const distance = Math.round(throwDistance(profile.power) * swingStrength(strike) * scatter * 10) / 10
+  return { distance, duration: flightDuration(distance) }
+}
+
+/** 'perfect' | 'great' | 'good' for a meter reading, as the client announces it. */
+export function swingGrade(strike) {
+  const k = swingStrength(strike)
+  return k === 1 ? 'perfect' : k >= 0.9 ? 'great' : 'good'
+}
+
+/** The green a ball at `distance` lands on, if any: `{ hole, ring, mult, label }`. */
+export function greenAt(distance) {
+  for (const hole of HOLES) {
+    const off = Math.abs(distance - hole)
+    const ring = GREEN_RINGS.findIndex((r) => off <= r.radius)
+    if (ring >= 0) return { hole, ring, mult: GREEN_RINGS[ring].mult, label: GREEN_RINGS[ring].label }
+  }
+  return null
+}
+
+/**
+ * A hit. Power is not consumed. `strike` is where the swing meter stood (see
+ * swingStrength); the shot scatters a touch either way. A ball that comes to rest on a
+ * green multiplies its Wins by the ring it lands in, and one in the hole drops in.
+ * Returns everything the client needs to replay the flight locally.
+ */
+export function applyThrow(profile, now, { strike, rand = Math.random } = {}) {
+  const full = throwDistance(profile.power)
+  const scatter = 1 + (rand() * 2 - 1) * SHOT_SCATTER
+  let distance = Math.round(full * swingStrength(strike) * scatter * 10) / 10
+  const green = greenAt(distance)
+  // In the hole: the ball comes to rest in it, not just next to it.
+  if (green?.ring === 0) distance = green.hole
   const multiplier = winsMultiplier(profile, now)
-  const wins = Math.max(1, Math.round(baseThrowWins(distance) * multiplier))
+  const wins = Math.max(1, Math.round(baseThrowWins(distance) * (green ? green.mult : 1) * multiplier))
   profile.wins += wins
+  // Candy Corn: one for the hit, one more for every zone the ball got through, and a
+  // bonus for a hole in one.
+  const candy = 1 + zoneIndexAt(distance) + (green?.ring === 0 ? HOLE_IN_ONE_CANDY : 0)
+  profile.candy += candy
   profile.stats.throws += 1
   profile.stats.bestDistance = Math.max(profile.stats.bestDistance, distance)
   return {
     ok: true,
     distance,
     wins,
+    candy,
     multiplier,
+    green,
     trophies: trophiesWithin(distance),
     duration: flightDuration(distance),
-    cooldown: flightDuration(distance) + THROW_RECOVERY,
+    cooldown: HIT_COOLDOWN,
   }
 }
 
@@ -297,6 +393,32 @@ export function equipPlane(profile, planeId) {
   if (!profile.ownedPlanes.includes(planeId)) return { ok: false, error: 'You don’t own that frisbee' }
   profile.equippedPlane = planeId
   return { ok: true, equipped: true, planeId }
+}
+
+// --- Pumpkin skins -----------------------------------------------------------------
+
+/** Buys a skin with Candy Corn and puts it on. */
+export function buySkin(profile, id) {
+  const skin = SKINS.find((s) => s.id === id)
+  if (!skin) return { ok: false, error: 'Unknown skin' }
+  if (profile.ownedSkins.includes(id)) return equipSkin(profile, id)
+  if (profile.candy < skin.cost) return { ok: false, error: 'Not enough Candy Corn!' }
+  profile.candy -= skin.cost
+  profile.ownedSkins.push(id)
+  profile.equippedSkin = id
+  return { ok: true, bought: true, skinId: id }
+}
+
+/** Wears an owned skin; '' goes back to the club's own look. */
+export function equipSkin(profile, id) {
+  if (id !== '' && !profile.ownedSkins.includes(id)) return { ok: false, error: 'You don’t own that skin' }
+  profile.equippedSkin = id
+  return { ok: true, equipped: true, skinId: id }
+}
+
+/** Candy Corn for winning a duel. */
+export function awardDuelCandy(profile) {
+  profile.candy += DUEL_WIN_CANDY
 }
 
 // --- Pets --------------------------------------------------------------------------

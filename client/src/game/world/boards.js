@@ -2,9 +2,9 @@ import { formatDuration, formatNumber } from '@shared/format'
 
 /** The three leaderboards: titles, colours and value formatting. */
 export const BOARD_INFO = {
-  rebirths: { title: 'Total Rebirths', color: '#ff5c8a', format: (v) => formatNumber(v) },
-  playtime: { title: 'Total Playtime', color: '#4fc3ff', format: (v) => formatDuration(v * 1000) },
-  power: { title: 'Top Power', color: '#ffb21e', format: (v) => formatNumber(v) },
+  rebirths: { title: 'Top Rebirths', color: '#ff4fa8', frame: '#d62a86', format: (v) => formatNumber(v) },
+  playtime: { title: 'Top Playtime', color: '#59e04a', frame: '#2fa02a', format: (v) => formatDuration(v * 1000) },
+  power: { title: 'Top Power', color: '#ffc21e', frame: '#d99a0c', format: (v) => formatNumber(v) },
 }
 
 

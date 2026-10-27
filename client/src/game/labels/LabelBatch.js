@@ -19,8 +19,9 @@ import { iconUrl } from '../../ui/icons'
  * one draw call and one texture, instead of a mesh + texture (or a DOM element
  * re-projected every frame) per label.
  *
- * A label spec is `{ lines: [{ text, size, fill?, gradient?, rainbow?, icon? }],
- * pxPerUnit? }`: sizes are canvas pixels at full quality, `pxPerUnit` is how many of
+ * A label spec is `{ lines: [{ text, size, fill?, gradient?, rainbow?, icon?, badge? }],
+ * pxPerUnit? }`. A `badge` line (`badge: '#rrggbb'`) is drawn as a round glossy medal in
+ * that colour with its text and icon inside, like the reference's "+40%" zone bubbles: sizes are canvas pixels at full quality, `pxPerUnit` is how many of
  * those pixels make one world unit.
  */
 
@@ -100,6 +101,12 @@ function measure(ctx, spec, scale) {
   let height = 0
   const lines = spec.lines.map((line) => {
     const size = line.size * scale
+    if (line.badge) {
+      const d = size * 2.7
+      width = Math.max(width, d + size * 0.3)
+      height += d + size * 0.2
+      return { line, size, textWidth: 0, iconSize: 0, h: d + size * 0.2 }
+    }
     ctx.font = lineFont(size)
     const textWidth = ctx.measureText(line.text).width
     const iconSize = line.icon ? size * 1.15 : 0
@@ -135,6 +142,11 @@ function draw(ctx, layout, bx, by, bw, bh, scale) {
   ctx.textBaseline = 'alphabetic'
   for (const m of layout.lines) {
     const { line, size, textWidth, iconSize } = m
+    if (line.badge) {
+      drawBadge(ctx, line, bx + bw / 2, y + m.h / 2, size)
+      y += m.h
+      continue
+    }
     const total = textWidth + (iconSize ? iconSize + size * 0.15 : 0)
     let x = bx + (bw - total) / 2
     const baseline = y + size * 0.92
@@ -144,16 +156,87 @@ function draw(ctx, layout, bx, by, bw, bh, scale) {
       x += iconSize + size * 0.15
     }
     ctx.font = lineFont(size)
-    const stroke = size * 0.24
+    const stroke = size * 0.26
     ctx.lineWidth = stroke
-    ctx.strokeStyle = '#111'
-    // Drop under the outline, as in the reference's chunky text.
-    ctx.strokeText(line.text, x, baseline + size * 0.07)
+    ctx.strokeStyle = '#120c1c'
+    // A soft dark halo, then a deep drop under the outline, as in the reference's
+    // chunky text.
+    ctx.save()
+    ctx.shadowColor = 'rgba(10, 4, 24, 0.55)'
+    ctx.shadowBlur = size * 0.22
+    ctx.strokeText(line.text, x, baseline + size * 0.1)
+    ctx.restore()
+    ctx.strokeText(line.text, x, baseline + size * 0.1)
     ctx.strokeText(line.text, x, baseline)
     ctx.fillStyle = fillFor(ctx, line, x, baseline - size * 0.8, size, textWidth)
     ctx.fillText(line.text, x, baseline)
+    // A glossy band over the top of the letters.
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(x - size * 0.1, baseline - size * 0.85, textWidth + size * 0.2, size * 0.38)
+    ctx.clip()
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)'
+    ctx.fillText(line.text, x, baseline)
+    ctx.restore()
     y += m.h
   }
+}
+
+/** Lightens ('#rrggbb', +t) or darkens (-t) a colour, for badge shading. */
+function shade(hex, t) {
+  const v = parseInt(hex.slice(1), 16)
+  const target = t > 0 ? 255 : 0
+  const ch = (shift) => {
+    const c = (v >> shift) & 0xff
+    return Math.round(c + (target - c) * Math.abs(t))
+  }
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`
+}
+
+/** A round glossy medal at (cx, cy): a ring in `line.badge`, its text and icon inside. */
+function drawBadge(ctx, line, cx, cy, size) {
+  const r = size * 1.3
+  const color = line.badge
+  // Outer glow, dark rim, coloured ring and a lighter face.
+  ctx.save()
+  ctx.shadowColor = color
+  ctx.shadowBlur = size * 0.5
+  ctx.fillStyle = '#120c1c'
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+  const ring = ctx.createLinearGradient(0, cy - r, 0, cy + r)
+  ring.addColorStop(0, shade(color, 0.45))
+  ring.addColorStop(1, shade(color, -0.25))
+  ctx.fillStyle = ring
+  ctx.beginPath()
+  ctx.arc(cx, cy, r * 0.9, 0, Math.PI * 2)
+  ctx.fill()
+  const face = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.3, r * 0.1, cx, cy, r * 0.75)
+  face.addColorStop(0, shade(color, 0.6))
+  face.addColorStop(1, shade(color, 0.05))
+  ctx.fillStyle = face
+  ctx.beginPath()
+  ctx.arc(cx, cy, r * 0.74, 0, Math.PI * 2)
+  ctx.fill()
+  // Gloss across the top half.
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.22)'
+  ctx.beginPath()
+  ctx.ellipse(cx, cy - r * 0.35, r * 0.6, r * 0.3, 0, 0, Math.PI * 2)
+  ctx.fill()
+  // The text, then the icon under it.
+  ctx.font = lineFont(size * 0.78)
+  ctx.textAlign = 'center'
+  ctx.lineWidth = size * 0.2
+  ctx.strokeStyle = '#120c1c'
+  const ty = cy + (line.icon ? -size * 0.05 : size * 0.28)
+  ctx.strokeText(line.text, cx, ty)
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(line.text, cx, ty)
+  ctx.textAlign = 'start'
+  const img = line.icon && decodedIcons.get(line.icon)
+  if (img) ctx.drawImage(img, cx - size * 0.45, cy + size * 0.05, size * 0.9, size * 0.9)
 }
 
 export class LabelBatch {
@@ -249,6 +332,7 @@ export class LabelBatch {
         depthWrite: false,
       })
       const mesh = new Mesh(this.buildGeometry(p), p.material)
+      p.mesh = mesh
       mesh.renderOrder = 10
       mesh.frustumCulled = false
       this.meshes.push(mesh)
@@ -322,6 +406,19 @@ export class LabelBatch {
     l.spec = { ...spec, pxPerUnit: l.spec.pxPerUnit }
     this.drawLabel(l, l.spec)
     l.page.texture.needsUpdate = true
+  }
+
+  /**
+   * Hides a label (`fade` ~0) or shows it again out to `fade` metres (null: its own), by
+   * its fade distance alone - no redraw.
+   */
+  setFade(id, fade) {
+    const l = this.labels.get(id)
+    const attr = l?.page?.mesh?.geometry.getAttribute('aFade')
+    if (!attr) return
+    const i = l.page.labels.indexOf(l)
+    for (let k = 0; k < 4; k += 1) attr.setX(i * 4 + k, fade ?? l.fade)
+    attr.needsUpdate = true
   }
 
   setMaxDistance(distance) {

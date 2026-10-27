@@ -5,6 +5,7 @@ import { Color, Euler, Matrix4, Quaternion, Vector3 } from 'three'
 import { useQuality } from '../../store/quality'
 import { createBoxInstances, disposeBlocks } from '../blocks'
 import { sharedMaterials, STYLE } from '../materials'
+import { runtime } from '../runtime'
 import { drainBursts } from './fxQueue'
 
 /** Fixed pool: bursts reuse the oldest pieces when it's full. */
@@ -31,6 +32,8 @@ const PALETTES = {
   confetti: ['#ff3b5c', '#ffd21f', '#4ef05a', '#2fc6ff', '#b15cff', '#ffffff'].map((c) => new Color(c)),
   gold: ['#ffe45c', '#ffc21f', '#ff9a12', '#ffffff'].map((c) => new Color(c)),
   power: ['#ffd84a', '#ffa21c', '#ffffff'].map((c) => new Color(c)),
+  /** Pumpkin embers: oranges, a gold spark and a violet one. */
+  ember: ['#ff7a14', '#ffb02a', '#ffe14a', '#b15cff', '#ffffff'].map((c) => new Color(c)),
 }
 
 /**
@@ -64,7 +67,7 @@ export function Particles() {
   useFrame((_state, rawDelta) => {
     const instanced = ref.current
     if (!instanced) return
-    const delta = Math.min(rawDelta, 0.05)
+    const delta = Math.min(rawDelta, 0.05) * runtime.timeScale
 
     drainBursts((burst) => {
       if (!enabled) return

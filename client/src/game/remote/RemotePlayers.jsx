@@ -11,12 +11,13 @@ import { inThrowArea, laneAt, THROW_LINE_Z } from '@shared/world'
 
 import { remotePlayers } from '../../net/remotePlayers'
 import { getQuality } from '../../store/quality'
-import { createBoxInstances, disposeBlocks } from '../blocks'
-import { createFrisbeeMesh, disposeFrisbeeMesh, frisbeeGlow, frisbeeOrientation } from '../frisbee'
+import { createBoxInstances, createToyInstances, disposeBlocks } from '../blocks'
+import { BALL_HALF_HEIGHT, createFrisbeeMesh, disposeFrisbeeMesh, frisbeeColor, frisbeeGlow, frisbeeOrientation, TEE_BALL_SCALE } from '../frisbee'
+import { createClubParts } from '../golfClub'
 import { createGlowInstances, disposeGlow } from '../glow'
 import { sharedMaterials, STYLE } from '../materials'
-import { CATCH_TIME, RELEASE_AT, RELEASE_DELAY, THROW_TIME } from '../playerPose'
-import { runtime } from '../runtime'
+import { CATCH_TIME, FULL_RELEASE_AT, FULL_SWING_TIME, RELEASE_AT, RELEASE_DELAY, THROW_TIME } from '../playerPose'
+import { runtime, SIDE_ON } from '../runtime'
 import { targetPoint } from '../world/targets'
 import { hideNameplatesFrom, NAMEPLATE_POOL_SIZE, placeNameplate } from './nameplates'
 
@@ -51,10 +52,12 @@ function spawnToss(r) {
   toss.released = false
   toss.t = 0
   toss.r = r
-  toss.planeId = r.planeId
+  toss.planeId = r.ballId
   const lane = laneAt(r.position.x, r.position.z, 0.5)
+  // Off the golfer's left, side-on over the ball as they are: the way they were heading.
+  const heading = r.yaw + SIDE_ON
   if (lane >= 0) toss.to.fromArray(targetPoint(lane))
-  else toss.to.set(r.position.x + Math.sin(r.yaw) * TOSS_RANGE, r.position.y + 0.4, r.position.z + Math.cos(r.yaw) * TOSS_RANGE)
+  else toss.to.set(r.position.x + Math.sin(heading) * TOSS_RANGE, r.position.y + 0.4, r.position.z + Math.cos(heading) * TOSS_RANGE)
 }
 
 /** Classic blocky figure, in studs-scaled units: [x, y(pivot), size, hangs from pivot]. */
@@ -92,6 +95,9 @@ const _up = new Vector3(0, 1, 0)
 const _target = new Vector3()
 const _dir = new Vector3()
 const _prev = new Vector3()
+const _clubAt = new Matrix4()
+/** The blocky figure's club: in the hand at the end of the arm, angled forward and down to the ground. */
+const CLUB_IN_HAND = new Matrix4().makeTranslation(0, -2 * S, 0).multiply(new Matrix4().makeRotationX(-1.05)).multiply(new Matrix4().makeScale(0.8, 0.8, 0.8))
 
 function lerpAngle(a, b, t) {
   let d = b - a
@@ -128,6 +134,8 @@ export function RemotePlayers() {
   const bodyRef = useRef(null)
   const ghostRef = useRef(null)
   const ghostGlowRef = useRef(null)
+  const clubsRef = useRef(null)
+  const headsRef = useRef(null)
 
   const assets = useMemo(() => {
     // Smooth toy boxes: the shared toy material, so no extra shader program.
@@ -135,12 +143,24 @@ export function RemotePlayers() {
     body.castShadow = true
     // Other players' throws: their own frisbees (same mesh and material as yours).
     const ghosts = createFrisbeeMesh(MAX_FRISBEES)
-    return { body, ghosts, ghostGlows: createGlowInstances(MAX_FRISBEES, 0.6) }
+    // Their clubs: the shaft and a head tinted in each one's club colour.
+    const parts = createClubParts()
+    const clubs = createToyInstances(parts.body, sharedMaterials().toy, MAX_REMOTES)
+    const heads = createToyInstances(parts.head, sharedMaterials().toy, MAX_REMOTES)
+    for (const m of [clubs, heads]) {
+      m.count = 0
+      m.frustumCulled = false
+    }
+    return { body, ghosts, ghostGlows: createGlowInstances(MAX_FRISBEES, 0.6), clubs, heads }
   }, [])
 
   useEffect(
     () => () => {
       disposeBlocks(assets.body)
+      for (const m of [assets.clubs, assets.heads]) {
+        m.geometry.dispose()
+        m.dispose()
+      }
       disposeFrisbeeMesh(assets.ghosts)
       disposeGlow(assets.ghostGlows)
       hideNameplatesFrom(0)
@@ -152,7 +172,9 @@ export function RemotePlayers() {
     const body = bodyRef.current
     const ghosts = ghostRef.current
     const ghostGlows = ghostGlowRef.current
-    if (!body || !ghosts || !ghostGlows) return
+    const clubs = clubsRef.current
+    const heads = headsRef.current
+    if (!body || !ghosts || !ghostGlows || !clubs || !heads) return
     const delta = Math.min(rawDelta, 0.05)
     const settings = getQuality()
     const now = performance.now()
@@ -160,6 +182,7 @@ export function RemotePlayers() {
     const t = state.clock.elapsedTime
 
     let instance = 0
+    let club = 0
     let plate = 0
     runtime.remotePets.length = 0
 
@@ -177,13 +200,26 @@ export function RemotePlayers() {
       if (r.throws !== r.seenThrows) {
         const fresh = r.throws > r.seenThrows
         r.seenThrows = r.throws
-        if (fresh) {
+        // A full swing (the server told us of the shot: see startRemoteSwing) is already
+        // playing; the pose update that follows it must not start a second, lesser one.
+        if (fresh && now - r.swingAt > 2000) {
           if (r.throwT <= THROW_TIME * (1 - RELEASE_AT)) r.throwT = THROW_TIME
-          if (visible && !inThrowArea(r.position.x, r.position.z, 2)) spawnToss(r)
+          // A duel's shot flies down the course instead (see duel.js).
+          if (visible && !r.dueling && !inThrowArea(r.position.x, r.position.z, 2)) spawnToss(r)
         }
       }
       const wasAway = r.frisbeeAway
       r.throwT = Math.max(0, r.throwT - delta)
+      r.swingT = Math.max(0, r.swingT - delta)
+      // Their ball waits on the tee while they stand over it in the Hit Zone or on a duel
+      // ring, until their club meets it, and comes back a moment after it has flown.
+      r.onTee =
+        visible &&
+        (r.dueling || inThrowArea(r.position.x, r.position.z, 0.5)) &&
+        r.speed < 0.6 &&
+        !r.emote &&
+        r.throwT <= 0 &&
+        (r.swingT > 0 ? r.swingT > FULL_SWING_TIME * (1 - FULL_RELEASE_AT) : now >= r.ballAwayUntil)
       r.frisbeeAway = r.throwT > 0 && r.throwT <= THROW_TIME * (1 - RELEASE_AT)
       r.catchT = wasAway && !r.frisbeeAway ? CATCH_TIME : Math.max(0, r.catchT - delta)
 
@@ -196,14 +232,24 @@ export function RemotePlayers() {
         const walking = r.speed > 0.6
         if (walking) r.walkPhase += delta * (6 + Math.min(r.speed, 10) * 0.5)
         const swing = walking ? Math.sin(r.walkPhase) * 0.9 : 0
-        const throwing = r.anim === 'throw'
+        const throwing = r.anim === 'throw' || r.swingT > 0
+        // A duel's ending: arms up and bouncing for the winner; knelt, arms down in
+        // front, for the loser.
+        const cheer = r.emote === 'win'
+        const sulk = r.emote === 'lose'
 
         _q.setFromAxisAngle(_up, r.yaw)
-        _base.compose(r.position, _q, _s.set(1, 1, 1))
+        _p.copy(r.position)
+        if (cheer) _p.y += Math.abs(Math.sin(t * 6)) * 0.25
+        if (sulk) _p.y -= 0.32
+        _base.compose(_p, _q, _s.set(1, 1, 1))
         for (const part of PART_LAYOUT) {
           const hangs = part.swing !== undefined
           let angle = hangs ? swing * part.swing : 0
           if (throwing && part.key === 'armR') angle = -2.2 + Math.sin(t * 18) * 0.6
+          if (cheer && part.key.startsWith('arm')) angle = -2.8 + Math.sin(t * 12 + (part.key === 'armL' ? 0 : Math.PI)) * 0.3
+          if (sulk && part.key.startsWith('arm')) angle = -0.7 - Math.max(0, Math.sin(t * 9 + (part.key === 'armL' ? 0 : Math.PI))) * 0.6
+          if (sulk && part.key.startsWith('leg')) angle = 1.5
           _local.makeTranslation(part.pos[0], part.pos[1], part.pos[2])
           _rot.makeRotationX(angle)
           _scale.makeScale(part.size[0], part.size[1], part.size[2])
@@ -211,6 +257,14 @@ export function RemotePlayers() {
           if (hangs) _scale.setPosition(0, -part.size[1] / 2, 0)
           _m.copy(_base).multiply(_local).multiply(_rot).multiply(_scale)
           body.setMatrixAt(instance, _m)
+          // The club, in the right hand.
+          if (part.key === 'armR' && club < MAX_REMOTES) {
+            _clubAt.copy(_base).multiply(_local).multiply(_rot).multiply(CLUB_IN_HAND)
+            clubs.setMatrixAt(club, _clubAt)
+            heads.setMatrixAt(club, _clubAt)
+            heads.setColorAt(club, frisbeeColor(r.planeId))
+            club += 1
+          }
           // Classic look: shirt on the torso, trousers on the legs, bare arms and head.
           body.setColorAt(instance, part.key === 'torso' ? shirt : part.key.startsWith('leg') ? pants : skin)
           instance += 1
@@ -257,6 +311,12 @@ export function RemotePlayers() {
     body.count = instance
     body.instanceMatrix.needsUpdate = true
     if (body.instanceColor) body.instanceColor.needsUpdate = true
+    for (const m of [clubs, heads]) {
+      m.count = club
+      m.visible = club > 0
+      m.instanceMatrix.needsUpdate = true
+    }
+    if (club > 0 && heads.instanceColor) heads.instanceColor.needsUpdate = true
 
     // --- Ghost frisbees -------------------------------------------------------------
     let g = 0
@@ -267,17 +327,34 @@ export function RemotePlayers() {
         runtime.ghostThrows.splice(i, 1)
         continue
       }
-      if (g >= MAX_GHOSTS) continue
+      // Not struck yet (a duel's shot waits for the club to meet it).
+      if (p < 0 || g >= MAX_GHOSTS) continue
       const eased = 1 - Math.pow(1 - p, 2.4)
       const endZ = THROW_LINE_Z - throwInfo.distance
       const z = throwInfo.z + (endZ - throwInfo.z) * eased
-      const y = 1.6 + 3.9 * (1 - Math.exp(-(throwInfo.z - z) / 9)) - 5 * Math.max(0, p - 0.86) / 0.14
+      const y0 = throwInfo.y0 ?? 1.6
+      const y = y0 + (5.5 - y0) * (1 - Math.exp(-(throwInfo.z - z) / 9)) - 5 * Math.max(0, p - 0.86) / 0.14
       _p.set(throwInfo.x * (1 - Math.min(1, p * 4)), Math.max(0.35, y), z)
       frisbeeOrientation(_q, now * 0.02 + i, 0.12, 0)
-      ghosts.setMatrixAt(g, _m.compose(_p, _q, _s.set(2, 2, 2)))
+      // Off the tee small, growing to its flight size in the first moments.
+      const size = (throwInfo.scale ?? 2) * Math.min(1, 0.25 + p * 12)
+      ghosts.setMatrixAt(g, _m.compose(_p, _q, _s.setScalar(size)))
       ghosts.setStyle(g, throwInfo.planeId)
-      ghostGlows.setMatrixAt(g, _m.compose(_p, _q, _s.setScalar(3 * settings.frisbeeGlow)))
+      ghostGlows.setMatrixAt(g, _m.compose(_p, _q, _s.setScalar(3 * size * 0.5 * settings.frisbeeGlow)))
       ghostGlows.setColorAt(g, frisbeeGlow(throwInfo.planeId))
+      g += 1
+    }
+
+    // --- Tee balls: each golfer's pumpkin on the ground in front of their club ------
+    for (const r of remotePlayers.values()) {
+      if (!r.onTee || g >= MAX_FRISBEES) continue
+      // Where your own is teed (Player.jsx's TeeBall): just ahead of the clubface, low.
+      _p.set(r.position.x + Math.sin(r.yaw) * 0.95, r.position.y + BALL_HALF_HEIGHT * TEE_BALL_SCALE + 0.01, r.position.z + Math.cos(r.yaw) * 0.95)
+      _q.identity()
+      ghosts.setMatrixAt(g, _m.compose(_p, _q, _s.setScalar(TEE_BALL_SCALE)))
+      ghosts.setStyle(g, r.ballId)
+      ghostGlows.setMatrixAt(g, _m.compose(_p, _q, _s.setScalar(TEE_BALL_SCALE * 1.2 * settings.frisbeeGlow)))
+      ghostGlows.setColorAt(g, frisbeeGlow(r.ballId))
       g += 1
     }
 
@@ -308,19 +385,6 @@ export function RemotePlayers() {
       g += 1
     }
 
-    // --- The frisbee in each fully drawn player's hand -----------------------------
-    const heldGlow = 1.5 * 0.95 * settings.frisbeeGlow
-    for (const r of remotePlayers.values()) {
-      if (!r.fullAvatar || !r.grip || r.frisbeeAway || g >= MAX_FRISBEES || runtime.camera.mode !== 'follow') continue
-      r.grip.updateWorldMatrix(true, false)
-      ghosts.setMatrixAt(g, r.grip.matrixWorld)
-      ghosts.setStyle(g, r.planeId)
-      _p.setFromMatrixPosition(r.grip.matrixWorld)
-      ghostGlows.setMatrixAt(g, _m.compose(_p, _q.identity(), _s.setScalar(heldGlow)))
-      ghostGlows.setColorAt(g, frisbeeGlow(r.planeId))
-      g += 1
-    }
-
     ghosts.count = g
     ghostGlows.count = g
     ghosts.instanceMatrix.needsUpdate = true
@@ -331,6 +395,8 @@ export function RemotePlayers() {
   return (
     <>
       <primitive ref={bodyRef} object={assets.body} />
+      <primitive ref={clubsRef} object={assets.clubs} />
+      <primitive ref={headsRef} object={assets.heads} />
       <primitive ref={ghostRef} object={assets.ghosts} />
       <primitive ref={ghostGlowRef} object={assets.ghostGlows} />
     </>

@@ -49,16 +49,18 @@ function Boosts() {
   )
 }
 
-/** Bottom-left: Wins and Rebirths, with any running potions above them. */
+/** Bottom-left: Candy Corn, Rebirths and Wins, with any running potions above them. */
 export function StatsPanel() {
   const wins = useGame((s) => s.profile.wins - s.pendingWins)
   const rebirths = useGame((s) => s.profile.rebirths)
+  const candy = useGame((s) => s.profile.candy - s.pendingCandy)
 
   return (
     <div className="pointer-events-none absolute flex flex-col" style={{ left: u(8), bottom: u(10) }}>
       <Boosts />
-      <StatRow icon="trophy" value={formatNumber(wins)} />
+      <StatRow icon="candyCorn" value={formatNumber(candy)} />
       <StatRow icon="rebirth" value={formatNumber(rebirths)} />
+      <StatRow icon="trophy" value={formatNumber(wins)} />
     </div>
   )
 }

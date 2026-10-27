@@ -8,15 +8,14 @@ import StrokeText from '../StrokeText'
 import useNow from '../useNow'
 import { ChunkyButton } from '../hud/parts'
 import { GRADIENTS, u } from '../hud/style'
-import Panel from './Panel'
 
 const itemIcon = (id) => {
   const item = ITEMS[id]
   return item.kind === 'egg' ? `egg:${item.egg}` : id
 }
 
-/** Backpack: potions to drink and egg vouchers to open, plus running boost timers. */
-export function ItemsPanel() {
+/** The Store's Inventory tab: potions to drink and egg vouchers to open, plus running boosts. */
+export function ItemsTab() {
   const items = useGame((s) => s.profile.items)
   const boosts = useGame((s) => s.profile.boosts)
   const closePanel = useGame((s) => s.closePanel)
@@ -28,7 +27,7 @@ export function ItemsPanel() {
   ].filter(([, , end]) => end > now)
 
   return (
-    <Panel title="ITEMS" width={900}>
+    <>
       {active.length > 0 && (
         <div className="flex flex-wrap" style={{ gap: u(16), marginBottom: u(14) }}>
           {active.map(([icon, label, end]) => (
@@ -45,7 +44,7 @@ export function ItemsPanel() {
         <div className="flex flex-col items-center" style={{ padding: u(40), gap: u(10) }}>
           <Icon name="items" size={u(120)} />
           <span style={{ fontSize: u(34) }}>
-            <StrokeText stroke={u(7)}>No items - claim Rewards to get potions and eggs!</StrokeText>
+            <StrokeText stroke={u(7)}>No items - claim Daily Rewards to get potions and eggs!</StrokeText>
           </span>
         </div>
       ) : (
@@ -89,8 +88,8 @@ export function ItemsPanel() {
           })}
         </div>
       )}
-    </Panel>
+    </>
   )
 }
 
-export default ItemsPanel
+export default ItemsTab

@@ -7,6 +7,7 @@ import {
   applyTrain,
   awardBadge,
   buyPlane,
+  buySkin,
   claimDaily,
   claimFreeReward,
   claimPlaytime,
@@ -16,6 +17,7 @@ import {
   equipPet,
   buyShopItem,
   equipPlane,
+  equipSkin,
   hatchEgg,
   isLaneUnlocked,
   isMaxLevel,
@@ -23,7 +25,7 @@ import {
   unequipPet,
   usePotion,
 } from './logic.js'
-import { eggStandNear, FREE_REWARD, inRect, inThrowArea, laneRect, PLANE_PADS, padRect, PORTAL } from './world.js'
+import { candyShopNear, eggStandNear, FREE_REWARD, inRect, inThrowArea, laneRect, PLANE_PADS, padRect, PORTAL } from './world.js'
 
 const PLANES_INDEX = Object.fromEntries(PLANES.map((p, i) => [p.id, i]))
 
@@ -143,11 +145,11 @@ export class PlayerSession {
       if (result.ok) this.afterRebirth()
     },
 
-    throw(_payload, now) {
+    throw(payload, now) {
       if (now < this.busyUntil) return
       const p = this.getPosition()
       if (!inThrowArea(p.x, p.z, THROW_SLACK)) return
-      const result = applyThrow(this.profile, now)
+      const result = applyThrow(this.profile, now, { strike: payload?.strike })
       this.busyUntil = now + result.cooldown * 1000
       this.emit('throw', {
         distance: result.distance,
@@ -155,6 +157,8 @@ export class PlayerSession {
         trophies: result.trophies,
         duration: result.duration,
         multiplier: result.multiplier,
+        green: result.green,
+        candy: result.candy,
       })
       this.onThrow?.(result)
       // The HUD holds the new Wins back until landing; the profile can go now.
@@ -162,6 +166,7 @@ export class PlayerSession {
       this.tutorial('throw')
       this.badge('firstThrow')
       if (result.distance >= 1000) this.badge('kilometer')
+      if (result.green?.ring === 0) this.badge('holeInOne')
     },
 
     buyPlane({ id }) {
@@ -178,6 +183,17 @@ export class PlayerSession {
     equipPlane({ id }) {
       const result = equipPlane(this.profile, id)
       if (result.ok) this.dirty = true
+    },
+
+    /** Buying a pumpkin skin means standing at the Candy Shop. */
+    buySkin({ id }) {
+      const p = this.getPosition()
+      if (!candyShopNear(p.x, p.z, 2)) return
+      if (buySkin(this.profile, String(id)).ok) this.dirty = true
+    },
+
+    equipSkin({ id }) {
+      if (equipSkin(this.profile, String(id || '')).ok) this.dirty = true
     },
 
     hatch({ eggId, count }) {

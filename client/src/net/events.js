@@ -1,4 +1,5 @@
 import { sfx } from '../audio/sfx'
+import { onDuelEvent } from '../game/duel'
 import { beginFlight } from '../game/flight/flightControl'
 import { burst, queueTrainFx } from '../game/fx/fxQueue'
 import { runtime } from '../game/runtime'
@@ -46,7 +47,7 @@ export function handleServerEvent(type, payload) {
       break
 
     case 'throw':
-      sfx.throw()
+      // The downswing's whoosh plays from the swing itself (Player.jsx).
       beginFlight(payload)
       break
 
@@ -66,6 +67,10 @@ export function handleServerEvent(type, payload) {
 
     case 'badge':
       sfx.wins()
+      break
+
+    case 'duel':
+      onDuelEvent(payload)
       break
 
     default:

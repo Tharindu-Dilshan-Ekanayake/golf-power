@@ -14,6 +14,7 @@ import WorldLabels from './labels/WorldLabels'
 import Pets, { RewardCrab, SphinxShowcase } from './pets/Pets'
 import RemoteAvatars from './remote/RemoteAvatars'
 import RemotePlayers from './remote/RemotePlayers'
+import Fireflies from './fx/Fireflies'
 import Particles from './fx/Particles'
 import Leaderboards from './world/Leaderboards'
 import EggDisplays from './world/EggDisplays'
@@ -181,6 +182,7 @@ export function GameScene({ onReady }) {
         <Leaderboards />
         <TutorialArrows />
         <Particles />
+        <Fireflies />
         <SphinxShowcase />
         <RewardCrab />
         <Pets />

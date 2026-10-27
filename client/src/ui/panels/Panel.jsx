@@ -66,9 +66,9 @@ export function Panel({ title, width = 920, children, footer, onClose }) {
             marginTop: u(56),
             padding: `${u(52)} ${u(22)} ${u(22)}`,
             borderRadius: u(10),
-            background: 'linear-gradient(180deg, rgba(30, 33, 38, 0.94), rgba(18, 20, 24, 0.94))',
+            background: 'linear-gradient(180deg, rgba(52, 30, 86, 0.95), rgba(26, 14, 46, 0.95))',
             border: `${u(6)} solid #0b0c0e`,
-            boxShadow: `inset 0 0 0 ${u(3)} rgba(255,255,255,0.08), 0 ${u(10)} ${u(30)} rgba(0,0,0,0.35)`,
+            boxShadow: `inset 0 0 0 ${u(3)} rgba(190,130,255,0.35), 0 ${u(10)} ${u(30)} rgba(0,0,0,0.45)`,
             maxHeight: '86vh',
             overflowY: 'auto',
           }}

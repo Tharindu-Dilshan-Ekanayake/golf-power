@@ -1,3 +1,4 @@
+import { beginFlight, flight } from './game/flight/flightControl'
 import { runtime } from './game/runtime'
 import { actions } from './net/actions'
 import { remotePlayers } from './net/remotePlayers'
@@ -11,5 +12,5 @@ import { useQuality } from './store/quality'
 export function installDebugHooks() {
   if (typeof window === 'undefined') return
   if (!new URLSearchParams(window.location.search).has('debug')) return
-  window.__pp = { runtime, useGame, useQuality, actions, remotePlayers }
+  window.__pp = { runtime, useGame, useQuality, actions, remotePlayers, beginFlight, flight }
 }

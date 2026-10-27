@@ -15,7 +15,7 @@ const WIDTH = 640
 
 const PACKS = [
   { product: 'power100k', label: '+100K', gradient: GRADIENTS.goldButton },
-  { product: 'power1m', label: '+1M', gradient: GRADIENTS.blueButton },
+  { product: 'power1m', label: '+1M', gradient: GRADIENTS.redButton },
   { product: 'power10m', label: '+10M', gradient: GRADIENTS.purpleButton },
 ]
 
@@ -32,7 +32,7 @@ function LevelBar() {
         height: u(48),
         borderRadius: u(24),
         border: `${u(4)} solid #111`,
-        background: 'rgba(22, 24, 30, 0.62)',
+        background: 'rgba(236, 232, 242, 0.94)',
         boxShadow: `0 ${u(4)} 0 #111`,
       }}
     >
@@ -61,7 +61,7 @@ function PackButton({ product, label, gradient }) {
       radius={16}
       style={{ width: u(198), height: u(76), gap: u(6), padding: `0 ${u(10)}` }}
     >
-      <Icon name="muscle" size={u(54)} />
+      <Icon name="burst" size={u(54)} />
       <span className="flex flex-col items-start" style={{ gap: u(3) }}>
         <span style={{ fontSize: u(34), lineHeight: 1 }}>
           <StrokeText stroke={u(8)}>{label}</StrokeText>
@@ -74,7 +74,7 @@ function PackButton({ product, label, gradient }) {
 
 /**
  * Bottom centre, all on one width: Power and Multiplier, the level bar, then the three
- * power packs.
+ * power packs (gold, red and purple).
  */
 export function PowerBar() {
   const power = useGame((s) => s.profile.power)
@@ -89,11 +89,14 @@ export function PowerBar() {
       style={{ bottom: u(20), width: u(WIDTH), gap: u(8) }}
     >
       <div className="flex w-full items-center justify-between" style={{ fontSize: u(36), padding: `0 ${u(6)}` }}>
+        <span className="flex items-center" style={{ gap: u(8) }}>
+          <Icon name="burst" size={u(40)} />
+          <StrokeText stroke={u(8)} gradient={GRADIENTS.gold}>
+            {formatNumber(power)} POWER
+          </StrokeText>
+        </span>
         <StrokeText stroke={u(8)} gradient={GRADIENTS.gold}>
-          Power: {formatNumber(power)}
-        </StrokeText>
-        <StrokeText stroke={u(8)} gradient={GRADIENTS.gold}>
-          Multiplier: {formatMultiplier(multiplier)}
+          {formatMultiplier(multiplier)} Multiplier
         </StrokeText>
       </div>
       <LevelBar />

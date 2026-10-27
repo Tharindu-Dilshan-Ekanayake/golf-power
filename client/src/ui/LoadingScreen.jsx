@@ -5,11 +5,12 @@ import { iconUrl } from './icons'
 import StrokeText from './StrokeText'
 
 const TIPS = [
-  'Stand in a training lane to gain Power automatically!',
-  'Rebirth to unlock better lanes and a higher level cap.',
-  'More Power = longer throws = more Wins!',
-  'Spend Wins on better frisbees and eggs.',
+  'Stand in a training bay to gain Power automatically!',
+  'Rebirth to unlock better bays and a higher level cap.',
+  'More Power = longer hits = more Wins!',
+  'Spend Wins on better golf clubs and eggs.',
   'Pets multiply all the Power you gain.',
+  'Hit it far enough and it crosses into the next haunted biome!',
 ]
 
 /**
@@ -45,7 +46,7 @@ export function LoadingScreen({ done }) {
       className="pp-font absolute inset-0 z-[100] flex flex-col items-center justify-center gap-8 transition-opacity duration-500"
       style={{
         opacity: done ? 0 : 1,
-        background: 'linear-gradient(180deg, #2f8ff2 0%, #6fc0fb 55%, #c6ec86 55.2%, #a9dd6a 100%)',
+        background: 'linear-gradient(180deg, #2b0e7a 0%, #5a1fc4 40%, #8a4ae0 55%, #1f6a24 55.2%, #123f17 100%)',
       }}
     >
       <div className="pp-loading-disc" aria-hidden="true">
@@ -53,8 +54,8 @@ export function LoadingScreen({ done }) {
       </div>
 
       <h1 className="m-0 text-center leading-none" style={{ fontSize: 'clamp(40px, 9vw, 96px)', transform: 'rotate(-3deg)' }}>
-        <StrokeText stroke="0.16em" gradient="linear-gradient(180deg, #ffffff 0%, #ffffff 55%, #ffe36b 56%, #ffb21e 100%)">
-          +1 FRISBEE
+        <StrokeText stroke="0.16em" gradient="linear-gradient(180deg, #ffffff 0%, #ffffff 55%, #ffb347 56%, #ff7a14 100%)">
+          GOLF POWER
         </StrokeText>
       </h1>
 
@@ -62,7 +63,7 @@ export function LoadingScreen({ done }) {
         <div className="relative h-9 overflow-hidden rounded-xl border-4 border-black bg-black/40">
           <div
             className="h-full rounded-md transition-[width] duration-200"
-            style={{ width: `${shown}%`, background: 'linear-gradient(180deg, #fff27a 0%, #ffc61e 50%, #ff9a12 100%)' }}
+            style={{ width: `${shown}%`, background: 'linear-gradient(180deg, #ffc46a 0%, #ff8a1e 50%, #e0560c 100%)' }}
           />
           <div className="absolute inset-0 flex items-center justify-center text-lg">
             <StrokeText stroke={5}>{done ? 'READY!' : `LOADING ${Math.round(shown)}%`}</StrokeText>

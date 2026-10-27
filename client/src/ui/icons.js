@@ -128,17 +128,41 @@ const star = svg(
   `<path d="M50 8l12 25 27 4-20 19 5 27-24-13-24 13 5-27-20-19 27-4z" fill="#ffffff" stroke="${OUT}" stroke-width="6" stroke-linejoin="round"/>`,
 )
 
-/** A frisbee seen at an angle: blue top with white rings, darker rim under it. */
+/**
+ * The game ball: a jack-o-lantern pumpkin with a glowing face. Still named `frisbee`, as
+ * the icon name is part of the label specs and saves; only the picture changed.
+ */
 const frisbee = svg(
-  `<ellipse cx="50" cy="58" rx="45" ry="23" fill="#1453b8" stroke="${OUT}" stroke-width="6"/>
-  <ellipse cx="50" cy="50" rx="45" ry="23" fill="url(#fz-g)" stroke="${OUT}" stroke-width="6"/>
-  <ellipse cx="50" cy="50" rx="31" ry="15" fill="none" stroke="#ffffff" stroke-width="5"/>
-  <ellipse cx="50" cy="50" rx="12" ry="5.6" fill="#ffffff"/>
-  <path d="M18 44c6-8 18-13 30-14" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity=".7"/>`,
+  `<path d="M46 20c0-8 4-13 12-15" fill="none" stroke="${OUT}" stroke-width="9" stroke-linecap="round"/>
+  <path d="M46 20c0-8 4-13 12-15" fill="none" stroke="#5cc23a" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M50 20c-22-8-44 4-44 36 0 24 18 38 44 38s44-14 44-38c0-32-22-44-44-36z" fill="url(#fz-g)" stroke="${OUT}" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M50 22c-12 10-12 62 0 70M50 22c12 10 12 62 0 70" fill="none" stroke="#c94a00" stroke-width="3.5" opacity=".55"/>
+  <path d="M26 50l12-4 2 12-12 2zM74 50l-12-4-2 12 12 2z" fill="#ffe14a" stroke="${OUT}" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M30 70l10 4 6-6 4 6 4-6 6 6 10-4-4 12-8 4-8-4-8 4-8-4z" fill="#ffe14a" stroke="${OUT}" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M18 40c3-9 9-15 17-17" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" opacity=".55"/>`,
   vgrad('fz-g', [
-    [0, '#7fd2ff'],
-    [1, '#2f7fe6'],
+    [0, '#ffb23a'],
+    [1, '#ff6a0a'],
   ]),
+)
+
+/** The Power burst: a red-and-yellow explosion, like the reference's POWER counter. */
+const burst = svg(
+  `<path d="M50 3l9 21 21-13-7 24 25 4-20 14 14 19-25-3-3 25-14-19-18 17 3-25-24-5 19-14-13-19 23 5z" fill="url(#bu-g)" stroke="${OUT}" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M50 26l5 12 13-4-7 11 11 8-13 1 1 13-10-9-9 9-1-13-13-1 11-8-7-11 13 4z" fill="#fff6a3" opacity=".9"/>`,
+  vgrad('bu-g', [
+    [0, '#ffd84a'],
+    [0.55, '#ff7a1c'],
+    [1, '#e0261c'],
+  ]),
+)
+
+/** A candy corn: yellow base, orange middle, white tip. */
+const candyCorn = svg(
+  `<path d="M50 6c10 0 14 10 18 24l14 52c2 8-4 12-10 12H28c-6 0-12-4-10-12l14-52C36 16 40 6 50 6z" fill="url(#cc-g)" stroke="${OUT}" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M33 32c10 4 24 4 34 0M26 60c16 6 32 6 48 0" fill="none" stroke="${OUT}" stroke-width="3" opacity=".35"/>
+  <path d="M40 18c3-6 6-8 10-8" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity=".7"/>`,
+  `<linearGradient id="cc-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".3" stop-color="#ffffff"/><stop offset=".31" stop-color="#ff9a1c"/><stop offset=".62" stop-color="#ff8a0a"/><stop offset=".63" stop-color="#ffd21f"/><stop offset="1" stop-color="#ffc20a"/></linearGradient>`,
 )
 
 /** A round potion flask with a cork, filled with `liquid` and a small badge icon. */
@@ -253,6 +277,8 @@ export const ICON_SVGS = {
   calendar,
   star,
   frisbee,
+  candyCorn,
+  burst,
   potionWins,
   potionPower,
   close,
@@ -263,11 +289,11 @@ export const ICON_SVGS = {
 
 /** Egg colours by egg id, shared by the icons and the 3D eggs. */
 export const EGG_COLORS = {
-  basic: ['#ffffff', '#cdd6e2', '#e2e8f0'],
-  meadow: ['#7cf08a', '#2fae4a', '#c8ffd0'],
-  sunset: ['#ffc07a', '#ff6a3d', '#ffe2b8'],
-  unicorn: ['#f6eaff', '#d3b4ff', '#ffd1f0'],
-  demon: ['#4a1d2e', '#1a0710', '#ff4a1c'],
+  basic: ['#ff9a2a', '#6a2a0a', '#ffd21f'],
+  meadow: ['#7dff3a', '#1f7a1a', '#e6ffb0'],
+  sunset: ['#b07cff', '#4a1d9a', '#e7d4ff'],
+  unicorn: ['#f4f0ff', '#9aa6c8', '#c9d4ff'],
+  demon: ['#2a1650', '#0d0618', '#b15cff'],
 }
 
 const urlCache = new Map()

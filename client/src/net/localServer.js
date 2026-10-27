@@ -25,6 +25,14 @@ function loadSave() {
  */
 export function createLocalServer({ id, name, onEvent }) {
   const profile = normalizeProfile(loadSave(), id, name)
+  // Candy Corn used to be kept apart from the save, in its own storage key.
+  try {
+    const legacy = Math.floor(Number(localStorage.getItem('gp.candyCorn')))
+    if (legacy > 0 && profile.candy === 0) profile.candy = legacy
+    localStorage.removeItem('gp.candyCorn')
+  } catch {
+    // Storage blocked: nothing to carry over.
+  }
   const startedAt = Date.now()
   // "Keep training while you're offline": credit the lane you logged off in.
   const offline = applyOfflineProgress(profile, startedAt)

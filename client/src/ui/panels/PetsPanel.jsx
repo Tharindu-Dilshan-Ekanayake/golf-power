@@ -11,7 +11,6 @@ import PetIcon from '../PetIcon'
 import StrokeText from '../StrokeText'
 import { ChunkyButton } from '../hud/parts'
 import { GRADIENTS, u } from '../hud/style'
-import Panel from './Panel'
 
 function PetCard({ pet, equipped, selected, onClick }) {
   const info = PETS[pet.id]
@@ -40,8 +39,8 @@ function PetCard({ pet, equipped, selected, onClick }) {
   )
 }
 
-/** Pet inventory: equip up to three, equip-best, delete. */
-export function PetsPanel() {
+/** The Store's Pets tab: the pet inventory - equip up to three, equip-best, delete. */
+export function PetsTab() {
   const profile = useGame((s) => s.profile)
   const [selectedUid, setSelectedUid] = useState(null)
 
@@ -54,7 +53,7 @@ export function PetsPanel() {
   const isEquipped = selected ? profile.equippedPets.includes(selected.uid) : false
 
   return (
-    <Panel title="PETS" width={980}>
+    <>
       <div className="flex flex-wrap items-center justify-between" style={{ gap: u(12), marginBottom: u(14) }}>
         <span style={{ fontSize: u(36) }}>
           <StrokeText stroke={u(7)}>
@@ -135,8 +134,8 @@ export function PetsPanel() {
           </ChunkyButton>
         </div>
       )}
-    </Panel>
+    </>
   )
 }
 
-export default PetsPanel
+export default PetsTab

@@ -21,20 +21,21 @@ export const PLAZA = { minX: -50, maxX: 50, minZ: -40, maxZ: 36 }
 // --- Throw stage --------------------------------------------------------------------
 
 /**
- * The raised stage players throw from. Its north edge is the end of the lobby: a
- * railing stops players there, and the track starts on the other side.
+ * The Hit Zone: a flat strip along the lobby's north edge that players hit from. Its
+ * north edge is the end of the lobby: a low wall stops players there, and the course
+ * lies far below on the other side.
  */
-export const STAGE = { minX: -11, maxX: 11, minZ: -40, maxZ: -26, height: 1.2 }
-/** Steps up to the stage along its south edge. */
-export const STAGE_STEPS = 3
+export const STAGE = { minX: -24, maxX: 24, minZ: -40, maxZ: -33, height: 0.05 }
+/** Steps up to the Hit Zone (none: it is flat). */
+export const STAGE_STEPS = 0
 export const STAGE_STEP_DEPTH = 1.2
 
 /** Track metre `m` is at world z = THROW_LINE_Z - m. */
 export const THROW_LINE_Z = STAGE.minZ
 export const TRACK_HALF_WIDTH = 9
 
-/** Painted "THROW AREA" on the stage: standing in it shows the THROW button. */
-export const THROW_AREA = { minX: -7, maxX: 7, minZ: -37, maxZ: -29 }
+/** The painted "HIT ZONE" tee area: standing in it shows the HIT! button. */
+export const THROW_AREA = { minX: -11, maxX: 11, minZ: -38.8, maxZ: -33.5 }
 
 /** Walkable ground; the controller clamps the player into it. Nothing past the stage. */
 export const WALKABLE = [PLAZA]
@@ -42,64 +43,71 @@ export const WALKABLE = [PLAZA]
 // --- Training lanes -----------------------------------------------------------------
 
 /**
- * Lanes line the west side of the plaza, side by side. Each runs east-west: you walk in
- * from the plaza (east end) and throw at the target board at the west end.
+ * Training bays line the east side of the plaza, side by side, as in the reference:
+ * facing the course, they are on your right. Each runs west-east: you walk in from the
+ * plaza (west end) and hit at the goal under its arch at the east end, against the wall.
  */
 export const LANE_COUNT = 9
-export const LANE_WIDTH = 5.6
-export const LANE_PITCH = 7
-/** Entrance edge (east) and target edge (west) of every lane floor. */
-export const LANE_NEAR_X = -24
-export const LANE_FAR_X = -42
-/** Where the target board stands, just past the far edge. */
-export const LANE_TARGET_X = -44.4
+export const LANE_WIDTH = 5.4
+export const LANE_PITCH = 6.8
+/** Entrance edge (west) and goal edge (east) of every lane floor. */
+export const LANE_NEAR_X = 28
+export const LANE_FAR_X = 46
+/** Where the goal stands, just past the far edge. */
+export const LANE_TARGET_X = 48.4
+/** +1 when lanes run east from their entrance, -1 when they run west. */
+export const LANE_DIR = Math.sign(LANE_FAR_X - LANE_NEAR_X)
 export const LANE_FLOOR_HEIGHT = 0.15
-/** Lane 0 (the free one) is the southernmost, nearest spawn; the rest run north. */
-const LANE0_Z = 26
+/** Lane 0 (the free one) is the northernmost, by the Hit Zone; the rest run south. */
+const LANE0_Z = -30
 
-export const laneCenterZ = (index) => LANE0_Z - index * LANE_PITCH
+export const laneCenterZ = (index) => LANE0_Z + index * LANE_PITCH
 
 export function laneRect(index) {
   const cz = laneCenterZ(index)
   return {
-    minX: LANE_FAR_X,
-    maxX: LANE_NEAR_X,
+    minX: Math.min(LANE_NEAR_X, LANE_FAR_X),
+    maxX: Math.max(LANE_NEAR_X, LANE_FAR_X),
     minZ: cz - LANE_WIDTH / 2,
     maxZ: cz + LANE_WIDTH / 2,
   }
 }
 
-// --- Frisbee shop -------------------------------------------------------------------
+// --- Golf club shop -----------------------------------------------------------------
 
 /**
- * The frisbee shop: an open-air yard east of the plaza with two display stages, the
- * first ten frisbees on the low front one and the next ten on the higher back one,
- * and a big FRISBEES board behind. Both stages are low enough to walk straight onto.
+ * The golf club shop along the west wall: two stepped stone tiers like bleachers, ten
+ * display pedestals on each, the cheaper clubs on the low front tier. Both tiers are
+ * low enough to walk straight onto. The GOLF CLUBS sign hangs on the wall behind.
  */
-export const SHOP = { minX: 22, maxX: 48, minZ: -26, maxZ: 12 }
+export const SHOP = { minX: -50, maxX: -24, minZ: -26, maxZ: 12 }
 export const SHOP_STAGES = [
-  { minX: 23.5, maxX: 34, minZ: -25, maxZ: 11, height: 0.5 },
-  { minX: 36.5, maxX: 47, minZ: -25, maxZ: 11, height: 1 },
+  { minX: -35, maxX: -25, minZ: -26, maxZ: 12, height: 0.6 },
+  { minX: -49, maxX: -35, minZ: -26, maxZ: 12, height: 1.4 },
 ]
-/** The board along the back (east) edge, facing the plaza, high enough that its lettering clears the price labels. */
-export const SHOP_BOARD = { x: 48.6, minZ: -23, maxZ: 9, top: 16 }
-export const PAD_SIZE = 4.4
+/** The sign on the wall behind the shop (west), facing the plaza. */
+export const SHOP_BOARD = { x: -51.6, minZ: -21, maxZ: 7, top: 13.5 }
+/** +1 when the shop faces east (it stands on the west side), -1 for west. */
+export const SHOP_FACE = Math.sign((SHOP.minX + SHOP.maxX) / 2) < 0 ? 1 : -1
+export const PAD_SIZE = 3.2
 
-/** Rows of display stands, nearest the plaza first: two rows on each stage. */
-const PAD_ROWS_X = [26, 31.5, 39, 44.5]
+/** The two rows of pedestals, front (low tier) first. */
+const PAD_ROWS_X = [-30, -42]
+const PADS_PER_ROW = 10
+const PAD_SPACING = 3.6
 
 /**
- * Twenty stands, five to a row 7 m apart. `row` (0-3, front to back) lets the labels
- * above them step up so nearer ones don't hide farther ones.
+ * Twenty pedestals, ten to a row. `row` (0 front, 1 back) lets the labels above them
+ * step up so nearer ones don't hide farther ones.
  */
 export const PLANE_PADS = Array.from({ length: 20 }, (_, i) => {
-  const row = Math.floor(i / 5)
+  const row = Math.floor(i / PADS_PER_ROW)
   return {
     index: i,
     row,
     x: PAD_ROWS_X[row],
-    z: (SHOP.minZ + SHOP.maxZ) / 2 - 14 + (i % 5) * 7,
-    y: SHOP_STAGES[row < 2 ? 0 : 1].height,
+    z: (SHOP.minZ + SHOP.maxZ) / 2 - ((PADS_PER_ROW - 1) / 2) * PAD_SPACING + (i % PADS_PER_ROW) * PAD_SPACING,
+    y: SHOP_STAGES[row].height,
   }
 })
 
@@ -112,27 +120,41 @@ export const padRect = (pad) => ({
 
 // --- Eggs, showcases, boards --------------------------------------------------------
 
+/** Eggs in a row before the leaderboards on the back (south) wall; the big one in the middle. */
 export const EGG_STANDS = [
-  { eggId: 'basic', x: 12, z: 22 },
-  { eggId: 'meadow', x: 20, z: 22 },
-  { eggId: 'sunset', x: 28, z: 22 },
-  { eggId: 'unicorn', x: 36, z: 22 },
-  { eggId: 'demon', x: -12, z: -14, big: true },
+  { eggId: 'basic', x: -22, z: 27 },
+  { eggId: 'meadow', x: -11, z: 27 },
+  { eggId: 'demon', x: 0, z: 27, big: true },
+  { eggId: 'sunset', x: 11, z: 27 },
+  { eggId: 'unicorn', x: 20, z: 27 },
 ]
 export const EGG_TRIGGER_RADIUS = 4.2
 
-/** Limited premium pet on display. */
-export const SPHINX_STAND = { x: 45, z: 21 }
+/** Limited premium pet on display, in the south-west corner. */
+export const SPHINX_STAND = { x: -42, z: 25 }
 
 export const LEADERBOARDS = [
-  { id: 'rebirths', x: 12, z: 33.5 },
-  { id: 'playtime', x: 24, z: 33.5 },
-  { id: 'power', x: 36, z: 33.5 },
+  { id: 'rebirths', x: -11, z: 33.5 },
+  { id: 'playtime', x: 0, z: 33.5 },
+  { id: 'power', x: 11, z: 33.5 },
 ]
 
-export const PORTAL = { x: 24, z: -34, radius: 3.4 }
-export const FREE_REWARD = { x: 12, z: 10, radius: 3 }
+/** The World 2 portal, a gothic doorway at the east end of the back wall. */
+export const PORTAL = { x: 31, z: 32.5, radius: 3.4 }
+/** The 1v1 duel rings at the Hit Zone's east end: blue, then red. */
+export const DUEL_PADS = [
+  { x: 12.5, z: -36.4, color: '#2f7fe6' },
+  { x: 17, z: -36.4, color: '#e0261c' },
+]
+/** How close to a ring's centre counts as standing on it. */
+export const DUEL_PAD_RADIUS = 1.6
+export const FREE_REWARD = { x: 12, z: 8, radius: 3 }
 export const WATERFALL = { x: 38, z: -40 }
+/** The Candy Shop's stall, on the Hit Zone's west end (it faces south, to the plaza). */
+export const CANDY_SHOP = { x: -30, z: -34.5 }
+/** Customers stand in front of the counter, inside this radius of (CANDY_SHOP.x, z + 4.5). */
+export const CANDY_SHOP_RADIUS = 4.2
+export const candyShopNear = (x, z, margin = 0) => Math.hypot(x - CANDY_SHOP.x, z - (CANDY_SHOP.z + 4.5)) <= CANDY_SHOP_RADIUS + margin
 
 // --- Collision ----------------------------------------------------------------------
 
@@ -145,22 +167,18 @@ const box = (x, z, halfX, halfZ) => ({
 
 /** Solid, never-changing obstacles. Locked lanes add their own walls at runtime. */
 export const STATIC_COLLIDERS = [
-  // The shop's board.
-  { minX: SHOP_BOARD.x - 0.5, maxX: SHOP_BOARD.x + 0.5, minZ: SHOP_BOARD.minZ - 0.5, maxZ: SHOP_BOARD.maxZ + 0.5 },
   // Egg pedestals.
   ...EGG_STANDS.map((s) => box(s.x, s.z, s.big ? 2.1 : 1.6, s.big ? 2.1 : 1.6)),
   box(SPHINX_STAND.x, SPHINX_STAND.z, 3, 3),
   ...LEADERBOARDS.map((b) => box(b.x, b.z, 4.6, 0.5)),
   box(FREE_REWARD.x, FREE_REWARD.z, 1.4, 1.4),
-  // The portal ring's base; the swirl itself is walk-through.
+  // The portal doorway's posts; the swirl itself is walk-through.
   box(PORTAL.x - PORTAL.radius, PORTAL.z, 0.6, 0.8),
   box(PORTAL.x + PORTAL.radius, PORTAL.z, 0.6, 0.8),
-  // Stage pillars at its front corners, and the railing along its north edge.
-  box(STAGE.minX + 1, STAGE.minZ + 1, 0.9, 0.9),
-  box(STAGE.maxX - 1, STAGE.minZ + 1, 0.9, 0.9),
-  { minX: STAGE.minX, maxX: STAGE.maxX, minZ: STAGE.minZ - 1, maxZ: STAGE.minZ + 0.4 },
-  // Target pedestals at the far end of each lane.
-  ...Array.from({ length: LANE_COUNT }, (_, i) => box(LANE_TARGET_X, laneCenterZ(i), 0.9, 1.6)),
+  // The edge of the Hit Zone: the drop to the course.
+  { minX: STAGE.minX - 30, maxX: STAGE.maxX + 30, minZ: STAGE.minZ - 1, maxZ: STAGE.minZ + 0.4 },
+  // Goals at the far end of each lane.
+  ...Array.from({ length: LANE_COUNT }, (_, i) => box(LANE_TARGET_X + LANE_DIR * 0.6, laneCenterZ(i), 1.4, 2.2)),
 ]
 
 /** Raised floors the player stands on, as rects with a height. */
@@ -202,6 +220,11 @@ export function padAt(x, z) {
 }
 
 /** The egg stand within reach of (x, z), or null. */
+/** Which duel ring (0 blue, 1 red) the point stands on, or -1. */
+export function duelPadAt(x, z, margin = 0) {
+  return DUEL_PADS.findIndex((pad) => Math.hypot(x - pad.x, z - pad.z) <= DUEL_PAD_RADIUS + margin)
+}
+
 export function eggStandNear(x, z) {
   for (const stand of EGG_STANDS) {
     const reach = EGG_TRIGGER_RADIUS + (stand.big ? 1 : 0)
